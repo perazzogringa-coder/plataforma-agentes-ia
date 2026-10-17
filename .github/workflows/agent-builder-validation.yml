@@ -11,21 +11,22 @@ jobs:
     runs-on: ubuntu-latest
     env:
       BASE_SHA: 4f630b7c4ae0bf1860f2e9a2f193bd98a3c19892
+      VALIDATED_COMMIT: 4bf5b2e70e631a5f0dd595f7a15fcbde76a2a9be
       PATCH_SHA256: f59cf8b2e570c296edaa4de0a2db12f11fc8e5bf563f02a0f2b4ff290db84d22
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 3
 
       - name: Verify isolated approved revision
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "$BASE_SHA"
-          test "$(git diff --name-only HEAD^ HEAD | sort)" = "$(printf '%s\n%s' frontend/src/pages/AgentBuilder.tsx .github/workflows/agent-builder-validation.yml | sort)"
-          test "$(git diff --no-ext-diff HEAD^ HEAD -- frontend/src/pages/AgentBuilder.tsx | sha256sum | awk '{print $1}')" = "$PATCH_SHA256"
-          git diff --check HEAD^ HEAD
-          if git diff --no-ext-diff HEAD^ HEAD -- frontend/src/pages/AgentBuilder.tsx | grep -E -i '(api[_-]?key|secret|token|password|authorization|sk-[a-z0-9_-]{8,})'; then
+          test "$(git rev-parse "$VALIDATED_COMMIT^")" = "$BASE_SHA"
+          test "$(git diff --name-only "$BASE_SHA" "$VALIDATED_COMMIT" | sort)" = "$(printf '%s\n%s' frontend/src/pages/AgentBuilder.tsx .github/workflows/agent-builder-validation.yml | sort)"
+          test "$(git diff --no-ext-diff "$BASE_SHA" "$VALIDATED_COMMIT" -- frontend/src/pages/AgentBuilder.tsx | sha256sum | awk '{print $1}')" = "$PATCH_SHA256"
+          git diff --check "$BASE_SHA" "$VALIDATED_COMMIT"
+          if git diff --no-ext-diff "$BASE_SHA" "$VALIDATED_COMMIT" -- frontend/src/pages/AgentBuilder.tsx | grep -E -i '(api[_-]?key|secret|token|password|authorization|sk-[a-z0-9_-]{8,})'; then
             echo 'Potential credential-like content found in AgentBuilder.' >&2
             exit 1
           fi
@@ -34,6 +35,7 @@ jobs:
             echo 'Tracked runtime environment file found.' >&2
             exit 1
           fi
+          git checkout --detach "$VALIDATED_COMMIT"
 
       - uses: actions/setup-node@v4
         with:
@@ -74,7 +76,10 @@ jobs:
             "npm": "$(npm --version)"
           }
           EOF
-          sha256sum artifact/manifest.json >> artifact/SHA256SUMS.txt
+          (
+            cd artifact
+            sha256sum manifest.json >> SHA256SUMS.txt
+          )
 
       - name: Upload frontend build for manual retrieval
         uses: actions/upload-artifact@v4
