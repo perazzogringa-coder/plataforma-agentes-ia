@@ -1,0 +1,85 @@
+name: Agent Builder isolated validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-build:
+    runs-on: ubuntu-latest
+    env:
+      BASE_SHA: 4f630b7c4ae0bf1860f2e9a2f193bd98a3c19892
+      PATCH_SHA256: f59cf8b2e570c296edaa4de0a2db12f11fc8e5bf563f02a0f2b4ff290db84d22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Verify isolated approved revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$BASE_SHA"
+          test "$(git diff --name-only HEAD^ HEAD | sort)" = "$(printf '%s\n%s' frontend/src/pages/AgentBuilder.tsx .github/workflows/agent-builder-validation.yml | sort)"
+          test "$(git diff --no-ext-diff HEAD^ HEAD -- frontend/src/pages/AgentBuilder.tsx | sha256sum | awk '{print $1}')" = "$PATCH_SHA256"
+          git diff --check HEAD^ HEAD
+          if git diff --no-ext-diff HEAD^ HEAD -- frontend/src/pages/AgentBuilder.tsx | grep -E -i '(api[_-]?key|secret|token|password|authorization|sk-[a-z0-9_-]{8,})'; then
+            echo 'Potential credential-like content found in AgentBuilder.' >&2
+            exit 1
+          fi
+          ! grep -qE 'secrets\.' .github/workflows/agent-builder-validation.yml
+          if git ls-files | grep -E '(^|/)\.env($|\.(local|development|production|test)$)'; then
+            echo 'Tracked runtime environment file found.' >&2
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install locked frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Type-check frontend
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Create artifact manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifact/frontend
+          cp -a frontend/build artifact/frontend/build
+          (
+            cd artifact
+            find frontend/build -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+          )
+          build_sha=$(sha256sum artifact/SHA256SUMS.txt | awk '{print $1}')
+          cat > artifact/manifest.json <<EOF
+          {
+            "commit": "$(git rev-parse HEAD)",
+            "base_commit": "$BASE_SHA",
+            "agent_builder_patch_sha256": "$PATCH_SHA256",
+            "build_tree_sha256": "$build_sha",
+            "node": "$(node --version)",
+            "npm": "$(npm --version)"
+          }
+          EOF
+          sha256sum artifact/manifest.json >> artifact/SHA256SUMS.txt
+
+      - name: Upload frontend build for manual retrieval
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-builder-frontend-${{ github.sha }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 7
