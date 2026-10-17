@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactFlow, {
     Background,
     BackgroundVariant,
@@ -3044,8 +3044,10 @@ const AgentBuilder: React.FC = () => {
     const [showNewAgentModal, setShowNewAgentModal] = useState(false);
     const [configuringToolId, setConfiguringToolId] = useState<string | null>(null);
     const [isLibraryCollapsed, setIsLibraryCollapsed] = useState(false);
-    const [isInspectorPanelOpen, setIsInspectorPanelOpen] = useState(true);
+    const [isInspectorPanelOpen, setIsInspectorPanelOpen] = useState(false);
     const [isInspectorDrawerOpen, setIsInspectorDrawerOpen] = useState(false);
+    const isNodeDragActiveRef = useRef(false);
+    const ignoreInspectorOpenUntilRef = useRef(0);
     const [expandedFewShots, setExpandedFewShots] = useState<Record<string, boolean>>({});
     const [newAgentName, setNewAgentName] = useState('');
     const [newAgentRole, setNewAgentRole] = useState('');
@@ -3075,6 +3077,47 @@ const AgentBuilder: React.FC = () => {
     const minimizeInspectorPanel = () => {
         setIsInspectorDrawerOpen(false);
         setIsInspectorPanelOpen(false);
+    };
+
+    const openGlobalInspectorPanel = () => {
+        setSelectedNodeId(null);
+        setSelectedEdgeId(null);
+        setConfiguringToolId(null);
+        setActiveInspectorTab('context');
+        setNodes((currentNodes) => currentNodes.map((node) => ({ ...node, selected: false })));
+        setEdges((currentEdges) => currentEdges.map((edge) => ({ ...edge, selected: false })));
+        openInspectorPanel();
+    };
+
+    const openSelectedNodeInspector = (nodeId: string) => {
+        setSelectedNodeId(nodeId);
+        setSelectedEdgeId(null);
+        setIsInspectorPanelOpen(true);
+        if (typeof window !== 'undefined' && window.innerWidth < 1536) {
+            setIsInspectorDrawerOpen(true);
+        }
+    };
+
+    const handleNodeDragStart = () => {
+        isNodeDragActiveRef.current = true;
+        ignoreInspectorOpenUntilRef.current = Number.POSITIVE_INFINITY;
+    };
+
+    const handleNodeDragStop = () => {
+        isNodeDragActiveRef.current = false;
+        // React Flow may emit a final selection/click after a drag. Keep the
+        // inspector collapsed until that residual event has passed.
+        ignoreInspectorOpenUntilRef.current = Date.now() + 220;
+    };
+
+    const handleNodeClick = (_event: React.MouseEvent, node: Node<AgentNodeData>) => {
+        if (
+            isNodeDragActiveRef.current
+            || Date.now() < ignoreInspectorOpenUntilRef.current
+        ) {
+            return;
+        }
+        openSelectedNodeInspector(node.id);
     };
 
     const loadWorkforces = useCallback(async () => {
@@ -4008,11 +4051,7 @@ const AgentBuilder: React.FC = () => {
     };
 
     const focusNode = (node: AgentNode) => {
-        setSelectedNodeId(node.id);
-        setSelectedEdgeId(null);
-        if (typeof window !== 'undefined' && window.innerWidth < 1536) {
-            setIsInspectorDrawerOpen(true);
-        }
+        openSelectedNodeInspector(node.id);
         reactFlowInstance?.setCenter(node.position.x + 130, node.position.y + 80, {
             zoom: Math.max(reactFlowInstance.getZoom(), 0.8),
             duration: 300
@@ -4079,8 +4118,7 @@ const AgentBuilder: React.FC = () => {
         if (!nodes.some((item) => item.data.kind !== 'human')) {
             setRootAgentKey(node.data.key);
         }
-        setSelectedNodeId(node.id);
-        setSelectedEdgeId(null);
+        openSelectedNodeInspector(node.id);
         setShowNewAgentModal(false);
         setError('');
         setIsDirty(true);
@@ -4877,7 +4915,7 @@ const AgentBuilder: React.FC = () => {
                     <div className="flex flex-wrap items-center gap-2">
                         <button
                             type="button"
-                            onClick={openInspectorPanel}
+                            onClick={openGlobalInspectorPanel}
                             className={agentiveSecondaryButtonClass(isDark, 'min-h-10 2xl:hidden')}
                         >
                             <Settings className="h-4 w-4" />
@@ -4976,7 +5014,7 @@ const AgentBuilder: React.FC = () => {
                             </button>
                             <button
                                 type="button"
-                                onClick={openInspectorPanel}
+                                onClick={openGlobalInspectorPanel}
                                 className={agentiveIconButtonClass(isDark, 'neutral', 'h-10 w-10 p-0 2xl:hidden')}
                                 title="Configurar"
                                 aria-label="Abrir configurações"
@@ -5117,6 +5155,9 @@ const AgentBuilder: React.FC = () => {
                         nodeTypes={nodeTypes}
                         onNodesChange={handleNodesChange}
                         onEdgesChange={handleEdgesChange}
+                        onNodeClick={handleNodeClick}
+                        onNodeDragStart={handleNodeDragStart}
+                        onNodeDragStop={handleNodeDragStop}
                         onConnect={onConnect}
                         connectionMode={ConnectionMode.Strict}
                         connectionRadius={34}
@@ -5130,7 +5171,10 @@ const AgentBuilder: React.FC = () => {
                                 typeof window !== 'undefined'
                                 && window.innerWidth < 1536
                                 && (nextSelectedNodeId || nextSelectedEdgeId)
+                                && !isNodeDragActiveRef.current
+                                && Date.now() >= ignoreInspectorOpenUntilRef.current
                             ) {
+                                setIsInspectorPanelOpen(true);
                                 setIsInspectorDrawerOpen(true);
                             }
                         }}
@@ -5142,7 +5186,7 @@ const AgentBuilder: React.FC = () => {
                         <Controls className={`!rounded-2xl !border !shadow-flat-md ${isDark ? '!border-white/10 !bg-brand !text-white' : '!border-brand/10 !bg-white !text-brand'}`} />
                         <MiniMap
                             nodeColor={(node) => KIND_MINIMAP_COLOR[(node.data as AgentNodeData).kind || 'custom']}
-                            className={`!rounded-2xl !border !shadow-flat-md ${isDark ? '!border-white/10 !bg-brand' : '!border-brand/10 !bg-white'}`}
+                            className={`!right-20 !rounded-2xl !border !shadow-flat-md ${isDark ? '!border-white/10 !bg-brand' : '!border-brand/10 !bg-white'}`}
                         />
 
                         <Panel position="top-left" className="m-3">
@@ -5204,7 +5248,7 @@ const AgentBuilder: React.FC = () => {
                 {isInspectorDrawerOpen && (
                     <button
                         type="button"
-                        onClick={() => setIsInspectorDrawerOpen(false)}
+                        onClick={minimizeInspectorPanel}
                         className="fixed inset-0 z-[60] bg-brand/45 backdrop-blur-sm 2xl:hidden"
                         aria-label="Fechar painel de configuração"
                     />
@@ -5214,7 +5258,7 @@ const AgentBuilder: React.FC = () => {
                     'min-h-0 flex-col overflow-hidden rounded-2xl border shadow-flat-md',
                     isInspectorDrawerOpen
                         ? 'fixed bottom-3 right-3 top-3 z-[70] flex w-[min(420px,calc(100vw-1.5rem))]'
-                        : 'hidden',
+                        : 'fixed bottom-3 right-3 top-3 z-[50] flex w-14',
                     '2xl:relative 2xl:bottom-auto 2xl:right-auto 2xl:top-auto 2xl:z-auto 2xl:flex 2xl:w-auto',
                     isDark ? 'border-white/10 bg-brand' : 'border-brand/10 bg-white'
                 )}>
@@ -5231,7 +5275,7 @@ const AgentBuilder: React.FC = () => {
                             </button>
                             <button
                                 type="button"
-                                onClick={openInspectorPanel}
+                                onClick={openGlobalInspectorPanel}
                                 className={agentiveIconButtonClass(isDark, 'neutral', 'h-10 w-10 p-0')}
                                 title={inspectorTitle}
                                 aria-label="Abrir configurações"
