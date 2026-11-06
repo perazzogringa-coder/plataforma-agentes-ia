@@ -16,6 +16,13 @@ WAHA audit/retry behavior and adds only these tenant fixes:
   authorization dependency;
 - regression coverage for shared phone numbers, duplicate WAHA events, and
   Board authorization.
+- compatible frontend dependency remediation (`axios`, `vite`, `browserslist`,
+  `follow-redirects`, `nanoid`, and `source-map-js`) and removal of unused
+  development-only `@shadcn/ui`, which removed the vulnerable Zod 3 chain.
+
+The remaining `deepmerge-ts` advisory is transitively fixed at version 8, but
+the currently used `flowbite-react` pins version 7.1.5. No incompatible
+override, downgrade, or library replacement is included in this release.
 
 No database migration belongs to this release. Migration `0005` is retained
 only because it is already part of the active API history and matches the
