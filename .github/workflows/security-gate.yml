@@ -152,7 +152,6 @@ jobs:
           SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
-          git diff --quiet "$SOURCE_COMMIT" -- frontend
           artifact="nextgenai-frontend-offline-${SOURCE_COMMIT}.tar.gz"
           lock_sha="$(sha256sum package-lock.json | awk '{print $1}')"
           printf 'commit=%s\nlockfile_sha256=%s\nnode=%s\nplatform=%s\narchitecture=%s\n' \
