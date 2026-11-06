@@ -148,12 +148,15 @@ jobs:
           npm run build
       - name: Assemble offline Linux x64 package
         shell: bash
+        env:
+          SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
-          artifact="nextgenai-frontend-offline-${GITHUB_SHA}.tar.gz"
+          git diff --quiet "$SOURCE_COMMIT" -- frontend
+          artifact="nextgenai-frontend-offline-${SOURCE_COMMIT}.tar.gz"
           lock_sha="$(sha256sum package-lock.json | awk '{print $1}')"
           printf 'commit=%s\nlockfile_sha256=%s\nnode=%s\nplatform=%s\narchitecture=%s\n' \
-            "$GITHUB_SHA" "$lock_sha" "$(node --version)" "$(node -p process.platform)" "$(node -p process.arch)" \
+            "$SOURCE_COMMIT" "$lock_sha" "$(node --version)" "$(node -p process.platform)" "$(node -p process.arch)" \
             > OFFLINE_PACKAGE_METADATA
           tar --owner=0 --group=0 --numeric-owner \
             --exclude='node_modules/.cache' \
@@ -162,10 +165,10 @@ jobs:
       - name: Upload offline frontend package
         uses: actions/upload-artifact@v4
         with:
-          name: nextgenai-frontend-offline-${{ github.sha }}
+          name: nextgenai-frontend-offline-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
-            frontend/nextgenai-frontend-offline-${{ github.sha }}.tar.gz
-            frontend/nextgenai-frontend-offline-${{ github.sha }}.tar.gz.sha256
+            frontend/nextgenai-frontend-offline-${{ github.event.pull_request.head.sha || github.sha }}.tar.gz
+            frontend/nextgenai-frontend-offline-${{ github.event.pull_request.head.sha || github.sha }}.tar.gz.sha256
           if-no-files-found: error
           retention-days: 14
 
