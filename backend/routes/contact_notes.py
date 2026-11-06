@@ -104,10 +104,14 @@ async def get_contact_notes(
 ):
     """Get all notes for a specific contact"""
     # Verify contact exists and user has access
-    contact = db.query(Contact).filter(
+    contacts = db.query(Contact).filter(
         Contact.phone == contact_phone,
         Contact.company_id == user.company_id
-    ).first()
+    ).limit(2).all()
+
+    if len(contacts) > 1:
+        raise HTTPException(status_code=409, detail="Contato ambíguo para esta empresa")
+    contact = contacts[0] if contacts else None
 
     if not contact:
         raise HTTPException(status_code=404, detail="Contact not found")
@@ -132,10 +136,14 @@ async def create_note(
 ):
     """Create a new note for a contact"""
     # Verify contact exists and user has access
-    contact = db.query(Contact).filter(
+    contacts = db.query(Contact).filter(
         Contact.phone == contact_phone,
         Contact.company_id == user.company_id
-    ).first()
+    ).limit(2).all()
+
+    if len(contacts) > 1:
+        raise HTTPException(status_code=409, detail="Contato ambíguo para esta empresa")
+    contact = contacts[0] if contacts else None
 
     if not contact:
         raise HTTPException(status_code=404, detail="Contact not found")

@@ -239,7 +239,7 @@ class Contact(Base):
     contact_tags = relationship("ContactTag", back_populates="contact", cascade="all, delete-orphan")
 
     __table_args__ = (
-        UniqueConstraint('client_id', 'phone', name='uq_contact_client_phone'),
+        UniqueConstraint('client_id', 'company_id', 'phone', name='uq_contact_client_company_phone'),
     )
 
 

@@ -50,6 +50,62 @@ WAHA_FILES_MARKER = "/api/files/"
 WAHA_MEDIA_ROUTE_PREFIX = "/api/waha/media/"
 
 
+def _lock_waha_message_processing(db: Session, company_id: int, provider_message_id: str) -> None:
+    """Serialize concurrent WAHA deliveries for one tenant/message pair."""
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:dedupe_key, 0))"),
+        {"dedupe_key": f"waha-message:{int(company_id)}:{provider_message_id}"},
+    )
+
+
+def _upsert_inbound_contact(
+    db: Session,
+    *,
+    client_id: int,
+    company_id: int,
+    phone: str,
+    name: Optional[str],
+    sender_lid: Optional[str],
+) -> None:
+    """Create or enrich one tenant-local contact without replacing good data."""
+    db.execute(text("""
+        INSERT INTO contacts
+            (client_id, company_id, phone, name, sender_lid, source_id, thumbnail_url, last_message_at)
+        VALUES (:client_id, :company_id, :phone, :name, :sender_lid, NULL, NULL, NOW())
+        ON CONFLICT (client_id, company_id, phone) DO UPDATE
+        SET name = CASE
+                       WHEN contacts.name IS NULL OR contacts.name = '' OR contacts.name = EXCLUDED.phone
+                       THEN EXCLUDED.name
+                       ELSE contacts.name
+                   END,
+            sender_lid = COALESCE(EXCLUDED.sender_lid, contacts.sender_lid),
+            last_message_at = NOW()
+    """), {
+        "client_id": client_id,
+        "company_id": company_id,
+        "phone": phone,
+        "name": name,
+        "sender_lid": sender_lid,
+    })
+
+
+def _touch_contact_last_message(
+    db: Session, *, client_id: int, company_id: int, phone: str
+) -> None:
+    """Update recency only for the contact in the receiving workspace."""
+    db.execute(text("""
+        UPDATE contacts
+        SET last_message_at = NOW()
+        WHERE client_id = :client_id
+          AND company_id = :company_id
+          AND phone = :contact_phone
+    """), {
+        "client_id": client_id,
+        "company_id": company_id,
+        "contact_phone": phone,
+    })
+
+
 def _company_openai_key_for_media(db: Session, company_id: int) -> str:
     try:
         return get_company_openai_api_key(db, int(company_id))
@@ -902,12 +958,40 @@ def process_incoming_waha_message(self, task_data: Dict[str, Any]):
     """
 
     db: Session = SessionLocal()
+    audit_lock_connection = None
+    audit_lock_key = None
+    audit_previous_status = None
+    audit_previous_phase = None
+    audit_id = task_data.get("audit_id")
+    flow_started = False
 
     try:
         waha_payload = task_data.get("payload", {})
         session_name = task_data.get("session_name")
         audit_id = task_data.get("audit_id")
         company_id = task_data.get("company_id")
+        if audit_id and company_id:
+            # A session advisory lock serializes redelivery of the same audit
+            # across commits; it is released even when the worker raises.
+            audit_lock_connection = db.get_bind().connect()
+            audit_lock_key = f"waha-audit:{company_id}:{audit_id}"
+            acquired = audit_lock_connection.execute(text(
+                "SELECT pg_try_advisory_lock(hashtextextended(:key, 0))"
+            ), {"key": audit_lock_key}).scalar()
+            if not acquired:
+                raise self.retry(countdown=30)
+            previous = db.execute(text("""
+                SELECT status, processing_status FROM webhook_audit
+                WHERE id=:id AND company_id=:company_id
+            """), {"id": audit_id, "company_id": company_id}).first()
+            if previous is None:
+                raise ValueError("WAHA audit entry unavailable for company")
+            audit_previous_status, audit_previous_phase = previous
+            if audit_previous_status in ("completed", "ignored", "uncertain"):
+                return
+            if audit_previous_phase == "waha_flow_started":
+                update_audit_status(db, audit_id, "uncertain", error="Flow outcome requires manual review")
+                return
         requested_operational_epoch = task_data.get("operational_epoch")
         from backend.services.company_access_control import (
             CompanyOperationalLockBusyError,
@@ -1687,12 +1771,18 @@ def process_incoming_waha_message(self, task_data: Dict[str, Any]):
         # IMPORTANTE: isso precisa rodar para mensagens recebidas também (from_api=False),
         # caso contrário elas não são persistidas na tabela messages.
         zapi_message_id = message_id  # Usar message_id do WAHA
+        if zapi_message_id:
+            _lock_waha_message_processing(db, int(company_id), zapi_message_id)
         existing = db.execute(text("""
                 SELECT id, message_type, content, sender_name
                 FROM messages
-                WHERE zapi_message_id = :zapi_message_id
+                WHERE company_id = :company_id
+                  AND zapi_message_id = :zapi_message_id
                 LIMIT 1
-        """), {"zapi_message_id": zapi_message_id}).fetchone()
+        """), {
+            "company_id": company_id,
+            "zapi_message_id": zapi_message_id,
+        }).fetchone()
 
         if not existing:
             try:
@@ -1731,14 +1821,12 @@ def process_incoming_waha_message(self, task_data: Dict[str, Any]):
                     })
 
                     # Atualizar last_message_at
-                    db.execute(text("""
-                        UPDATE contacts
-                        SET last_message_at = NOW()
-                        WHERE client_id = :client_id AND phone = :contact_phone
-                    """), {
-                        "client_id": client_id_db,
-                        "contact_phone": phone
-                    })
+                    _touch_contact_last_message(
+                        db,
+                        client_id=client_id_db,
+                        company_id=company_id,
+                        phone=phone,
+                    )
 
                     db.commit()
                     was_inserted = True
@@ -1760,9 +1848,13 @@ def process_incoming_waha_message(self, task_data: Dict[str, Any]):
                     existing = db.execute(text("""
                             SELECT id, message_type, content, sender_name
                             FROM messages
-                            WHERE zapi_message_id = :zapi_message_id
+                            WHERE company_id = :company_id
+                              AND zapi_message_id = :zapi_message_id
                             LIMIT 1
-                    """), {"zapi_message_id": zapi_message_id}).fetchone()
+                    """), {
+                        "company_id": company_id,
+                        "zapi_message_id": zapi_message_id,
+                    }).fetchone()
                 else:
                     # Outro erro - propagar
                     raise
@@ -1979,105 +2071,41 @@ def process_incoming_waha_message(self, task_data: Dict[str, Any]):
         # Mensagens fromMe=true (enviadas por nós) não devem criar contatos
         # Isso evita criar contatos com IDs de canais (@lid) ou números falsos
         if not from_me:
-            contact_name = sender_name
-
-            contact_exists = db.execute(text("""
-                SELECT id, company_id, name
-                FROM contacts
-                WHERE client_id = :client_id
-                  AND phone = :phone
-            """), {"client_id": client_id_db, "phone": phone}).fetchone()
-
-            if contact_exists:
-                if contact_exists.company_id != company_id:
-                    # Criar novo contato para esta empresa
-                    db.execute(text("""
-                        INSERT INTO contacts
-                            (client_id, company_id, phone, name, sender_lid, source_id, thumbnail_url, last_message_at)
-                        VALUES (:client_id, :company_id, :phone, :name, :sender_lid, :source_id, :thumbnail_url, NOW())
-                        ON CONFLICT (client_id, company_id, phone) DO UPDATE
-                        SET name = EXCLUDED.name,
-                            sender_lid = EXCLUDED.sender_lid,
-                            source_id = EXCLUDED.source_id,
-                            thumbnail_url = EXCLUDED.thumbnail_url,
-                            last_message_at = NOW()
-                    """), {
-                        "client_id": client_id_db,
-                        "company_id": company_id,
-                        "phone": phone,
-                        "name": contact_name,
-                        "sender_lid": sender_lid,
-                        "source_id": None,  # Indicações não usam source_id de anúncios
-                        "thumbnail_url": None  # Indicações não usam thumbnail_url de anúncios
-                    })
-                else:
-                    # Atualizar contato existente
-                    db.execute(text("""
-                        UPDATE contacts
-                        SET name = CASE
-                                   WHEN name IS NULL OR name = '' OR name = :phone
-                                   THEN :name
-                                   ELSE name
-                                   END,
-                            sender_lid = COALESCE(:sender_lid, sender_lid),
-                            source_id = CASE
-                                         WHEN :source_id IS NOT NULL AND :source_id != ''
-                                         THEN :source_id
-                                         ELSE source_id
-                                         END,
-                            thumbnail_url = CASE
-                                             WHEN :thumbnail_url IS NOT NULL AND :thumbnail_url != ''
-                                             THEN :thumbnail_url
-                                             ELSE thumbnail_url
-                                             END,
-                            last_message_at = NOW()
-                        WHERE client_id = :client_id
-                          AND company_id = :company_id
-                          AND phone = :phone
-                    """), {
-                        "name": contact_name,
-                        "phone": phone,
-                        "client_id": client_id_db,
-                        "company_id": company_id,
-                        "sender_lid": sender_lid,
-                        "source_id": None,  # Indicações não usam source_id de anúncios
-                        "thumbnail_url": None  # Indicações não usam thumbnail_url de anúncios
-                    })
-            else:
-                # Criar novo contato
-                db.execute(text("""
-                    INSERT INTO contacts
-                        (client_id, company_id, phone, name, sender_lid, source_id, thumbnail_url, last_message_at)
-                    VALUES (:client_id, :company_id, :phone, :name, :sender_lid, :source_id, :thumbnail_url, NOW())
-                """), {
-                    "client_id": client_id_db,
-                    "company_id": company_id,
-                    "phone": phone,
-                    "name": contact_name,
-                    "sender_lid": sender_lid,
-                    "source_id": None,  # Indicações não usam source_id de anúncios
-                    "thumbnail_url": None  # Indicações não usam thumbnail_url de anúncios
-                })
+            _upsert_inbound_contact(
+                db,
+                client_id=client_id_db,
+                company_id=company_id,
+                phone=phone,
+                name=sender_name,
+                sender_lid=sender_lid,
+            )
 
             db.commit()
-            logger.info(f"[WAHA Task] Contato atualizado: phone={phone}, name={contact_name}")
+            logger.info(f"[WAHA Task] Contato atualizado: phone={phone}, name={sender_name}")
         else:
             logger.info(f"[WAHA Task] ⏭️ Mensagem fromMe=true ignorada para criação de contato: phone={phone}")
 
         # ===== INCREMENTAR UNREAD_COUNT =====
         # Incrementar contador apenas para mensagens recebidas (não do operador/LLM)
         if not from_me and sender_name_db != "LLM":
-            db.execute(text("""
-                UPDATE contacts
-                SET unread_count = unread_count + 1
-                WHERE client_id = :client_id
-                  AND company_id = :company_id
-                  AND phone = :phone
-            """), {
-                "client_id": client_id_db,
-                "company_id": company_id,
-                "phone": phone
-            })
+            should_increment_unread = (not audit_id or was_inserted or was_updated or
+                                       audit_previous_status in ("failed", "processing"))
+            if audit_id and should_increment_unread:
+                marked = db.execute(text("""
+                    UPDATE webhook_audit SET processing_status='waha_unread_counted'
+                    WHERE id=:id AND company_id=:company_id
+                      AND processing_status IS NULL
+                    RETURNING id
+                """), {"id": audit_id, "company_id": company_id}).first()
+                should_increment_unread = marked is not None
+            if should_increment_unread:
+                db.execute(text("""
+                    UPDATE contacts
+                    SET unread_count = unread_count + 1
+                    WHERE client_id = :client_id
+                      AND company_id = :company_id
+                      AND phone = :phone
+                """), {"client_id": client_id_db, "company_id": company_id, "phone": phone})
             db.commit()
             logger.info(f"[WAHA Task] unread_count incrementado para o contato {phone}.")
 
@@ -2654,7 +2682,9 @@ def process_incoming_waha_message(self, task_data: Dict[str, Any]):
             if user_text and (msg_type != "text"):
                 append_message_to_chat_file(company_id, phone, from_me=False, content=user_text)
 
-        if not from_me and user_text and not (was_inserted or was_updated):
+        safe_retry = bool(audit_id and audit_previous_status in ("failed", "processing")
+                          and audit_previous_phase in (None, "waha_unread_counted"))
+        if not from_me and user_text and not (was_inserted or was_updated) and not safe_retry:
             logger.info(
                 "[WAHA Task] Mensagem recebida já existia e não mudou; pulando automações para evitar resposta duplicada"
             )
@@ -2700,6 +2730,13 @@ def process_incoming_waha_message(self, task_data: Dict[str, Any]):
                     "timestamp": normalized_data.get("momment", ""),
                     "messageId": normalized_data.get("messageId"),
                 }
+                if audit_id:
+                    db.execute(text("""
+                        UPDATE webhook_audit SET processing_status='waha_flow_started'
+                        WHERE id=:id AND company_id=:company_id
+                    """), {"id": audit_id, "company_id": company_id})
+                    db.commit()
+                    flow_started = True
                 if msg_type == "image" and content:
                     image_payload = {
                         "imageUrl": content,
@@ -2813,7 +2850,7 @@ def process_incoming_waha_message(self, task_data: Dict[str, Any]):
                         flow_error_detail,
                     )
                     if audit_id:
-                        update_audit_status(db, audit_id, "completed", error=flow_error_detail)
+                        update_audit_status(db, audit_id, "uncertain", error="Flow failed; delivery requires review")
                     return
                 else:
                     logger.info(
@@ -2827,7 +2864,8 @@ def process_incoming_waha_message(self, task_data: Dict[str, Any]):
             except Exception as flow_error:
                 logger.exception("[WAHA Task] ❌ Erro no FlowBuilder; sem fallback legado")
                 if audit_id:
-                    update_audit_status(db, audit_id, "completed", error=f"Erro no FlowBuilder: {flow_error}")
+                    db.rollback()
+                    update_audit_status(db, audit_id, "uncertain" if flow_started else "failed", error="Flow execution failed; review required")
                 return
 
         # Classificar mensagem e detectar estágio do funil
@@ -2927,6 +2965,10 @@ def process_incoming_waha_message(self, task_data: Dict[str, Any]):
     except Exception as e:
         logger.exception(f"[WAHA Task] Erro ao processar mensagem: {e}")
 
+        # PostgreSQL rejects further statements until the failed transaction is
+        # rolled back; release it before recording the failure for a retry.
+        db.rollback()
+
         # Atualizar status auditoria
         if audit_id:
             try:
@@ -2939,3 +2981,9 @@ def process_incoming_waha_message(self, task_data: Dict[str, Any]):
 
     finally:
         db.close()
+        if audit_lock_connection is not None:
+            try:
+                if audit_lock_key is not None:
+                    audit_lock_connection.execute(text("SELECT pg_advisory_unlock(hashtextextended(:key, 0))"), {"key": audit_lock_key})
+            finally:
+                audit_lock_connection.close()

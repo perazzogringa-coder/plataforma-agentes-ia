@@ -778,6 +778,7 @@ async def create_customer(
                 raise HTTPException(status_code=400, detail="Informe telefone ou contato existente")
             contact = db.query(Contact).filter(
                 Contact.client_id == client_id,
+                Contact.company_id == company_id,
                 Contact.phone == phone,
             ).first()
             if not contact:
@@ -807,6 +808,7 @@ async def create_customer(
                     raise HTTPException(status_code=409, detail="Já existe outro cliente com este telefone")
                 existing_contact = db.query(Contact.id).filter(
                     Contact.client_id == client_id,
+                    Contact.company_id == company_id,
                     Contact.phone == phone,
                     Contact.id != customer.contact_id,
                 ).first()
@@ -975,6 +977,7 @@ async def update_customer(
                 raise HTTPException(status_code=409, detail="Já existe outro cliente com este telefone")
             existing_contact = db.query(Contact.id).filter(
                 Contact.client_id == client_id,
+                Contact.company_id == company_id,
                 Contact.phone == phone,
                 Contact.id != customer.contact_id,
             ).first()

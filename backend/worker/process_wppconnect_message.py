@@ -443,9 +443,10 @@ def process_incoming_wppconnect_message(
                 db.execute(text("""
                     UPDATE contacts
                     SET last_message_at = NOW()
-                    WHERE client_id = :client_id AND phone = :contact_phone
+                    WHERE client_id = :client_id AND company_id = :company_id AND phone = :contact_phone
                 """), {
                     "client_id": client_id_db,
+                    "company_id": company_id,
                     "contact_phone": phone
                 })
 
@@ -460,8 +461,8 @@ def process_incoming_wppconnect_message(
         contact_name = sender_name if sender_name else phone
         contact_exists = db.execute(text("""
             SELECT id, name FROM contacts
-            WHERE client_id = :client_id AND phone = :phone
-        """), {"client_id": client_id_db, "phone": phone}).fetchone()
+            WHERE client_id = :client_id AND company_id = :company_id AND phone = :phone
+        """), {"client_id": client_id_db, "company_id": company_id, "phone": phone}).fetchone()
 
         if contact_exists:
             logger.info("[WPPCONNECT-WORKER] Contato existe, atualizando")
@@ -473,9 +474,11 @@ def process_incoming_wppconnect_message(
                            ELSE name
                            END
                 WHERE client_id = :client_id
+                  AND company_id = :company_id
                   AND phone = :phone
             """), {
                 "name": contact_name,
+                "company_id": company_id,
                 "phone": phone,
                 "client_id": client_id_db
             })

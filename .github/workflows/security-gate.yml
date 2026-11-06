@@ -98,3 +98,5 @@ jobs:
         run: node ../tools/check-frontend-audit.mjs
       - name: Type-check frontend
         run: npm run typecheck
+      - name: Build frontend for production
+        run: npm run build

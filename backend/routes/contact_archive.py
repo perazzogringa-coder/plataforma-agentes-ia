@@ -94,10 +94,14 @@ async def archive_contact(
             FOR UPDATE
         """)
 
-        contact = db.execute(contact_query, {
+        matches = db.execute(contact_query, {
             "phone": phone,
             "company_id": company_id
-        }).fetchone()
+        }).fetchmany(2)
+
+        if len(matches) > 1:
+            raise HTTPException(status_code=409, detail="Há mais de um contato para este telefone na empresa")
+        contact = matches[0] if matches else None
 
         if not contact:
             raise HTTPException(status_code=404, detail="Contato não encontrado")
@@ -198,10 +202,14 @@ async def unarchive_contact(
             FOR UPDATE
         """)
 
-        contact = db.execute(contact_query, {
+        matches = db.execute(contact_query, {
             "phone": phone,
             "company_id": company_id
-        }).fetchone()
+        }).fetchmany(2)
+
+        if len(matches) > 1:
+            raise HTTPException(status_code=409, detail="Há mais de um contato para este telefone na empresa")
+        contact = matches[0] if matches else None
 
         if not contact:
             raise HTTPException(status_code=404, detail="Contato não encontrado")
