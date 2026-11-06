@@ -33,11 +33,11 @@ def test_same_phone_is_upserted_independently_for_two_companies():
     db = _RecordingDb()
 
     _upsert_inbound_contact(
-        db, client_id=7, company_id=101, phone="5511999999999",
+        db, client_id=7, company_id=101, phone="5500000000001",
         name="Contato A", sender_lid="a@lid",
     )
     _upsert_inbound_contact(
-        db, client_id=7, company_id=202, phone="5511999999999",
+        db, client_id=7, company_id=202, phone="5500000000001",
         name="Contato B", sender_lid="b@lid",
     )
 
@@ -54,8 +54,8 @@ def test_message_and_message_any_share_one_tenant_message_lock():
     """T6: concurrent WAHA variants serialize on the same tenant/message key."""
     db = _RecordingDb()
 
-    _lock_waha_message_processing(db, 101, "false_5511999999999@c.us_ABC")
-    _lock_waha_message_processing(db, 101, "false_5511999999999@c.us_ABC")
+    _lock_waha_message_processing(db, 101, "false_5500000000001@c.us_ABC")
+    _lock_waha_message_processing(db, 101, "false_5500000000001@c.us_ABC")
 
     assert len(db.calls) == 2
     assert all("pg_advisory_xact_lock" in call[0] for call in db.calls)
@@ -78,7 +78,7 @@ def test_contact_recency_update_cannot_touch_another_company():
     db = _RecordingDb()
 
     _touch_contact_last_message(
-        db, client_id=7, company_id=202, phone="5511999999999"
+        db, client_id=7, company_id=202, phone="5500000000001"
     )
 
     sql, params = db.calls[0]
@@ -86,5 +86,5 @@ def test_contact_recency_update_cannot_touch_another_company():
     assert params == {
         "client_id": 7,
         "company_id": 202,
-        "contact_phone": "5511999999999",
+        "contact_phone": "5500000000001",
     }
