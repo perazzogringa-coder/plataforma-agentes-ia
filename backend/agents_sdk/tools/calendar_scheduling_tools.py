@@ -1060,7 +1060,7 @@ def _get_or_create_lead(
 
     contact = (
         db.query(Contact)
-        .filter(Contact.client_id == client_id, Contact.phone == phone)
+        .filter(Contact.client_id == client_id, Contact.company_id == company_id, Contact.phone == phone)
         .first()
     )
     if not contact:

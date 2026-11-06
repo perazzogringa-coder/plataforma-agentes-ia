@@ -434,9 +434,10 @@ def process_incoming_zapi_message(data: Dict[str, Any], instance_id: str, audit_
                     db.execute(text("""
                         UPDATE contacts
                         SET last_message_at = NOW()
-                        WHERE client_id = :client_id AND phone = :contact_phone
+                        WHERE client_id = :client_id AND company_id = :company_id AND phone = :contact_phone
                     """), {
                         "client_id": client_id_db,
+                        "company_id": company_id,
                         "contact_phone": phone
                     })
 
@@ -466,9 +467,10 @@ def process_incoming_zapi_message(data: Dict[str, Any], instance_id: str, audit_
                 db.execute(text("""
                     UPDATE contacts
                     SET last_message_at = NOW()
-                    WHERE client_id = :client_id AND phone = :contact_phone
+                    WHERE client_id = :client_id AND company_id = :company_id AND phone = :contact_phone
                 """), {
                     "client_id": client_id_db,
+                    "company_id": company_id,
                     "contact_phone": phone
                 })
 
@@ -497,9 +499,10 @@ def process_incoming_zapi_message(data: Dict[str, Any], instance_id: str, audit_
                 SELECT id, company_id, name
                 FROM contacts
                 WHERE client_id = :client_id
+                  AND company_id = :company_id
                   AND phone = :phone
             """),
-            {"client_id": client_id_db, "phone": phone}
+            {"client_id": client_id_db, "company_id": company_id, "phone": phone}
         ).fetchone()
 
         if contact_exists:

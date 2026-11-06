@@ -1,8 +1,10 @@
 import os
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from cryptography.fernet import Fernet
+from openai import APIStatusError
 
 os.environ.setdefault("DATABASE_URL", "postgresql://localhost/agentive_test")
 
@@ -37,6 +39,23 @@ class _FakeDB:
 def _clear_encryption_env(monkeypatch):
     monkeypatch.delenv("AI_PROVIDER_TOKEN_ENCRYPTION_KEY", raising=False)
     monkeypatch.delenv("INTEGRATION_TOKEN_ENCRYPTION_KEY", raising=False)
+
+
+def _provider_status_error(
+    status_code,
+    code,
+    message="provider error",
+    request_id="req_provider_test_123",
+):
+    return APIStatusError(
+        "provider request failed",
+        response=httpx.Response(
+            status_code,
+            request=httpx.Request("GET", "https://api.openai.com/v1/models"),
+            headers={"x-request-id": request_id},
+        ),
+        body={"error": {"code": code, "message": message}},
+    )
 
 
 def test_dedicated_key_encrypts_without_persisting_plaintext(monkeypatch):
@@ -129,7 +148,7 @@ def test_validate_openai_key_filters_and_orders_supported_models(monkeypatch):
         {
             "model": "gpt-4o-mini",
             "input": "Responda apenas OK.",
-            "max_output_tokens": 1,
+            "max_output_tokens": 16,
             "store": False,
         }
     ]
@@ -186,6 +205,88 @@ def test_validation_requires_the_runtime_transcription_model(monkeypatch):
         )
 
 
+def test_validation_uses_configured_transcription_model(monkeypatch):
+    monkeypatch.setenv("OPENAI_TRANSCRIPTION_MODEL", "gpt-4o-mini-transcribe")
+
+    class _FakeModels:
+        def list(self):
+            return SimpleNamespace(
+                data=[
+                    SimpleNamespace(id="gpt-4o-mini"),
+                    SimpleNamespace(id="gpt-4o-mini-transcribe"),
+                ]
+            )
+
+    class _FakeOpenAI:
+        def __init__(self, **_kwargs):
+            self.models = _FakeModels()
+            self.responses = SimpleNamespace(create=lambda **_request: None)
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(service, "OpenAI", _FakeOpenAI)
+
+    assert service.validate_openai_api_key("provider-key-valid") == ["gpt-4o-mini"]
+
+
+@pytest.mark.parametrize(
+    ("stage", "failure_site"),
+    [
+        ("list_models", "models"),
+        ("responses_probe", "responses"),
+    ],
+)
+def test_validation_reports_safe_diagnostic_for_each_provider_stage(
+    monkeypatch,
+    stage,
+    failure_site,
+):
+    secret = "provider-key-never-return-this"
+    provider_error = _provider_status_error(
+        400,
+        "invalid_request_error",
+        f"provider body must not leak {secret}",
+    )
+
+    class _FakeModels:
+        def list(self):
+            if failure_site == "models":
+                raise provider_error
+            return SimpleNamespace(
+                data=[
+                    SimpleNamespace(id="gpt-4o-mini"),
+                    SimpleNamespace(id="gpt-4o-transcribe"),
+                ]
+            )
+
+    class _FakeOpenAI:
+        def __init__(self, **_kwargs):
+            self.models = _FakeModels()
+            self.responses = SimpleNamespace(
+                create=lambda **_request: (
+                    (_ for _ in ()).throw(provider_error)
+                    if failure_site == "responses"
+                    else None
+                )
+            )
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(service, "OpenAI", _FakeOpenAI)
+
+    with pytest.raises(service.AIProviderValidationError) as exc_info:
+        service.validate_openai_api_key(secret)
+
+    message = str(exc_info.value)
+    assert f"etapa {stage}" in message
+    assert "HTTP 400" in message
+    assert "invalid_request_error" in message
+    assert "req_provider_test_123" in message
+    assert secret not in message
+
+
 def test_validation_failure_never_exposes_provider_exception(monkeypatch):
     secret = "provider-key-never-return-this"
 
@@ -207,6 +308,47 @@ def test_validation_failure_never_exposes_provider_exception(monkeypatch):
 
     assert secret not in str(exc_info.value)
     assert exc_info.value.credential_status == "error"
+
+
+def test_provider_status_error_reports_safe_invalid_api_key_diagnostics():
+    secret = "provider-key-never-return-this"
+
+    error = service._validation_error_from_exception(
+        _provider_status_error(401, "invalid_api_key", secret)
+    )
+
+    assert error.credential_status == "invalid"
+    assert error.http_status_code == 400
+    assert "HTTP 401" in str(error)
+    assert "invalid_api_key" in str(error)
+    assert secret not in str(error)
+
+
+def test_provider_status_error_does_not_echo_unsafe_provider_code():
+    secret = "provider-key-never-return-this"
+
+    error = service._validation_error_from_exception(
+        _provider_status_error(400, f"bad-code-{secret}", secret)
+    )
+
+    assert error.credential_status == "invalid"
+    assert "HTTP 400" in str(error)
+    assert secret not in str(error)
+
+
+def test_provider_status_error_does_not_echo_unsafe_request_id():
+    secret = "provider-key-never-return-this"
+
+    error = service._validation_error_from_exception(
+        _provider_status_error(
+            400,
+            "invalid_request_error",
+            request_id=f"unexpected-{secret}",
+        )
+    )
+
+    assert "HTTP 400" in str(error)
+    assert secret not in str(error)
 
 
 def test_company_key_resolution_and_run_config_are_per_execution(monkeypatch):

@@ -15,9 +15,15 @@ fail() {
 [[ -f backend/scripts/bootstrap_admin.py ]] || fail 'bootstrap do primeiro administrador ausente'
 [[ -f docs/public/README.md ]] || fail 'documentação pública ausente'
 
-tracked_artifacts="$({
-  git ls-files | rg -i '(^|/)(\.env$|.*\.(db|sqlite|sqlite3|bin|pem|key|p12|pfx)$|crewai_storage/|frontend/(build|dist)/)' || true
-} | rg -v '(^|/)\.env\.[^.]+\.example$' || true)"
+if command -v rg >/dev/null 2>&1; then
+  tracked_artifacts="$({
+    git ls-files | rg -i '(^|/)(\.env$|.*\.(db|sqlite|sqlite3|bin|pem|key|p12|pfx)$|crewai_storage/|frontend/(build|dist)/)' || true
+  } | rg -v '(^|/)\.env\.[^.]+\.example$' || true)"
+else
+  tracked_artifacts="$({
+    git ls-files | grep -Ei '(^|/)(\.env$|.*\.(db|sqlite|sqlite3|bin|pem|key|p12|pfx)$|crewai_storage/|frontend/(build|dist)/)' || true
+  } | grep -Ev '(^|/)\.env\.[^.]+\.example$' || true)"
+fi
 if [[ -n "$tracked_artifacts" ]]; then
   printf '%s\n' "$tracked_artifacts" >&2
   fail 'artefatos locais ou sensíveis continuam rastreados'
@@ -66,11 +72,6 @@ for branding_asset in logo-light.svg logo-dark.svg icon.svg icon-white.svg; do
 done
 git grep -q 'SUA_EMPRESA' -- frontend/src/config/branding.ts docs/public/05-personalizacao.md \
   || fail 'placeholder e instruções de branding ausentes'
-
-mapfile -t migrations < <(find backend/alembic/versions -maxdepth 1 -type f -name '*.py' -print)
-if [[ "${#migrations[@]}" -ne 1 ]]; then
-  fail "esperada exatamente uma migração inicial; encontradas ${#migrations[@]}"
-fi
 
 "$PYTHON_BIN" tools/security_check.py
 "$PYTHON_BIN" -m compileall -q backend

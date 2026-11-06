@@ -387,10 +387,25 @@ class PipelineService:
         if not pipeline:
             raise HTTPException(status_code=404, detail="Pipeline não encontrado")
 
-        # Determinar próxima ordem
-        last_order = db.query(func.max(PipelineStage.order)).filter(
-            PipelineStage.pipeline_id == pipeline_id
-        ).scalar() or 0
+        # Etapas personalizadas devem ficar antes das etapas finais.
+        # Esta regra é aplicada no servidor para não depender da interface.
+        first_terminal_order = db.query(func.min(PipelineStage.order)).filter(
+            PipelineStage.pipeline_id == pipeline_id,
+            (PipelineStage.is_converted_stage == True) | (PipelineStage.is_lost_stage == True),
+        ).scalar()
+        if first_terminal_order is None:
+            new_order = (db.query(func.max(PipelineStage.order)).filter(
+                PipelineStage.pipeline_id == pipeline_id
+            ).scalar() or 0) + 1
+        else:
+            new_order = first_terminal_order
+            db.query(PipelineStage).filter(
+                PipelineStage.pipeline_id == pipeline_id,
+                PipelineStage.order >= new_order,
+            ).update({
+                PipelineStage.order: PipelineStage.order + 1,
+                PipelineStage.order_index: PipelineStage.order_index + 1,
+            }, synchronize_session=False)
 
         # Validar que não existe outra etapa converted/lost (se especificado)
         if stage_data.get("is_converted_stage", False):
@@ -429,8 +444,8 @@ class PipelineService:
 
         stage = PipelineStage(
             pipeline_id=pipeline_id,
-            order=last_order + 1,
-            order_index=last_order + 1,  # Manter sincronizado com order
+            order=new_order,
+            order_index=new_order,  # Manter sincronizado com order
             name=stage_data["name"],
             color=stage_data.get("color", "#3B82F6"),
             description=stage_data.get("description", ""),
@@ -465,6 +480,7 @@ class PipelineService:
 
                 if stage:
                     stage.order = new_order
+                    stage.order_index = new_order
 
             db.commit()
             return True

@@ -7,12 +7,21 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, Union
 from pydantic import BaseModel
 from backend.db import get_db
-from backend.auth import get_current_user, verify_client_or_bearer_api_key
+from backend.auth import (
+    ensure_user_can_access_company,
+    get_current_user,
+    verify_client_or_bearer_api_key,
+)
 from backend.models import User, Client
 from backend.services.pipeline_service import PipelineService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _authorize_company(current_user: Union[User, Client], company_id: int, db: Session) -> None:
+    """Apply the same workspace rule to every CRM entry point."""
+    ensure_user_can_access_company(current_user, int(company_id), db)
 
 # --- Função para verificar API Key ---
 async def verify_api_key(
@@ -138,15 +147,7 @@ async def get_pipelines(
     if not company_id:
         raise HTTPException(status_code=400, detail="Company_id não fornecido")
 
-    # Verificar permissão (se company_id diferente do usuário)
-    if current_user.company_id != company_id:
-        logger.warning(
-            "CRM pipeline permission mismatch: user_company_id=%s requested_company_id=%s",
-            current_user.company_id,
-            company_id,
-        )
-        # TODO: Implementar verificação de permissão admin
-        pass
+    _authorize_company(current_user, company_id, db)
 
     from backend.models import Pipeline
 
@@ -250,71 +251,9 @@ async def create_pipeline(
     db: Session = Depends(get_db),
     current_user: Union[User, Client] = Depends(get_current_user)
 ):
-
-    if not company_id:
-        raise HTTPException(status_code=400, detail="Company_id não fornecido")
-
-    # Verificar permissão (se company_id diferente do usuário)
-    if current_user.company_id != company_id:
-        logger.warning(
-            "CRM pipeline permission mismatch: user_company_id=%s requested_company_id=%s",
-            current_user.company_id,
-            company_id,
-        )
-        # TODO: Implementar verificação de permissão admin
-        pass
-
-    from backend.models import Pipeline
-
-    pipelines = db.query(Pipeline).filter(
-        Pipeline.company_id == company_id
-    ).all()
-
-    result = []
-    for pipeline in pipelines:
-        stages_data = []
-        for stage in sorted(pipeline.stages, key=lambda x: x.order):
-            stages_data.append(PipelineStageResponse(
-                id=stage.id,
-                pipeline_id=stage.pipeline_id,
-                name=stage.name,
-                description=stage.description,
-                color=stage.color,
-                order=stage.order,
-                is_first_stage=stage.is_first_stage,
-                is_converted_stage=stage.is_converted_stage,
-                is_lost_stage=stage.is_lost_stage,
-                auto_advance_days=stage.auto_advance_days,
-                follow_up_sequence_id=stage.follow_up_sequence_id,
-                percentage_base_stage_id=stage.percentage_base_stage_id
-            ))
-
-        result.append(PipelineResponse(
-            id=pipeline.id,
-            company_id=pipeline.company_id,
-            name=pipeline.name,
-            description=pipeline.description,
-            is_active=pipeline.is_active,
-            created_by_user_id=pipeline.created_by_user_id,
-            created_at=pipeline.created_at.isoformat() if pipeline.created_at else "",
-            updated_at=pipeline.updated_at.isoformat() if pipeline.updated_at else "",
-            stages=stages_data
-        ))
-
-    return result
-
-@router.post("/pipelines", response_model=PipelineResponse)
-async def create_pipeline(
-    pipeline_data: PipelineCreate,
-    company_id: int,
-    db: Session = Depends(get_db),
-    current_user: Union[User, Client] = Depends(get_current_user)
-):
     """Criar novo pipeline para a empresa"""
 
-    # Validar permissão
-    if current_user.company_id != company_id:
-        raise HTTPException(status_code=403, detail="Sem permissão para esta empresa")
+    _authorize_company(current_user, company_id, db)
 
     # Criar pipeline usando serviço
     from backend.models import Pipeline
@@ -323,7 +262,7 @@ async def create_pipeline(
         company_id=company_id,
         name=pipeline_data.name,
         description=pipeline_data.description,
-        created_by_user_id=current_user.id,
+        created_by_user_id=current_user.id if isinstance(current_user, User) else None,
         is_active=True
     )
 
@@ -344,6 +283,19 @@ async def create_pipeline(
     )
 
     db.add(first_stage)
+
+    # Todo pipeline começa com as etapas finais persistidas.
+    defaults = [
+        ("Ganhou", "#16A34A", True, False),
+        ("Perdeu", "#DC2626", False, True),
+    ]
+    additional_stages = pipeline_data.stages or []
+    for offset, (name, color, converted, lost) in enumerate(defaults, start=2 + len(additional_stages)):
+        if any((converted and item.is_converted_stage) or (lost and item.is_lost_stage) for item in additional_stages):
+            continue
+        db.add(PipelineStage(pipeline_id=pipeline.id, name=name, color=color,
+                             order=offset, order_index=offset,
+                             is_converted_stage=converted, is_lost_stage=lost))
 
     # Criar etapas adicionais se fornecidas
     for i, stage_data in enumerate(pipeline_data.stages or [], start=2):
@@ -412,8 +364,7 @@ async def add_stage_to_pipeline(
     if not pipeline:
         raise HTTPException(status_code=404, detail="Pipeline não encontrado")
 
-    if current_user.company_id != pipeline.company_id:
-        raise HTTPException(status_code=403, detail="Sem permissão para este pipeline")
+    _authorize_company(current_user, pipeline.company_id, db)
 
     try:
         stage = PipelineService.create_custom_stage(pipeline_id, stage_data.dict(), db)
@@ -456,8 +407,7 @@ async def update_pipeline_stage(
     if not stage:
         raise HTTPException(status_code=404, detail="Etapa não encontrada")
 
-    if current_user.company_id != stage.pipeline.company_id:
-        raise HTTPException(status_code=403, detail="Sem permissão para esta etapa")
+    _authorize_company(current_user, stage.pipeline.company_id, db)
 
     payload = stage_data.dict(exclude_unset=True)
 
@@ -548,8 +498,7 @@ async def reorder_pipeline_stages(
     if not pipeline:
         raise HTTPException(status_code=404, detail="Pipeline não encontrado")
 
-    if current_user.company_id != pipeline.company_id:
-        raise HTTPException(status_code=403, detail="Sem permissão para este pipeline")
+    _authorize_company(current_user, pipeline.company_id, db)
 
     success = PipelineService.update_stage_order(
         [so.dict() for so in stage_orders],
@@ -575,9 +524,7 @@ async def get_pipeline_kanban_data(
 ):
     """Retorna dados formatados para visualização Kanban"""
 
-    # Validar permissão
-    if current_user.company_id != company_id:
-        raise HTTPException(status_code=403, detail="Sem permissão para esta empresa")
+    _authorize_company(current_user, company_id, db)
 
     kanban_data = PipelineService.get_pipeline_kanban_data(
         company_id=company_id,
@@ -605,8 +552,7 @@ async def move_lead_to_stage(
     if not lead:
         raise HTTPException(status_code=404, detail="Lead não encontrado")
 
-    if current_user.company_id != lead.company_id:
-        raise HTTPException(status_code=403, detail="Sem permissão para este lead")
+    _authorize_company(current_user, lead.company_id, db)
 
     try:
         # Verificar se current_user é User (para histórico) ou Client (sem usuário específico)
@@ -651,8 +597,7 @@ async def get_lead_pipeline_history(
     if not lead:
         raise HTTPException(status_code=404, detail="Lead não encontrado")
 
-    if current_user.company_id != lead.company_id:
-        raise HTTPException(status_code=403, detail="Sem permissão para este lead")
+    _authorize_company(current_user, lead.company_id, db)
 
     history = PipelineService.get_lead_pipeline_history(lead_id, db)
 
@@ -672,9 +617,7 @@ async def get_pipeline_statistics(
 ):
     """Retornar estatísticas do pipeline para analytics"""
 
-    # Validar permissão
-    if current_user.company_id != company_id:
-        raise HTTPException(status_code=403, detail="Sem permissão para esta empresa")
+    _authorize_company(current_user, company_id, db)
 
     stats = PipelineService.get_pipeline_statistics(
         company_id=company_id,
@@ -701,8 +644,7 @@ async def update_pipeline(
     if not pipeline:
         raise HTTPException(status_code=404, detail="Pipeline não encontrado")
 
-    if current_user.company_id != pipeline.company_id:
-        raise HTTPException(status_code=403, detail="Sem permissão para este pipeline")
+    _authorize_company(current_user, pipeline.company_id, db)
 
     # Atualizar campos
     if pipeline_data.name:
@@ -731,8 +673,7 @@ async def delete_pipeline(
     if not pipeline:
         raise HTTPException(status_code=404, detail="Pipeline não encontrado")
 
-    if current_user.company_id != pipeline.company_id:
-        raise HTTPException(status_code=403, detail="Sem permissão para este pipeline")
+    _authorize_company(current_user, pipeline.company_id, db)
 
     # Verificar se há leads ativos no pipeline
     leads_count = db.query(Lead).filter(Lead.pipeline_id == pipeline_id).count()
@@ -761,9 +702,7 @@ async def delete_pipeline_stage(
     if not stage:
         raise HTTPException(status_code=404, detail="Etapa não encontrada")
 
-    # Validar permissão através do pipeline
-    if current_user.company_id != stage.pipeline.company_id:
-        raise HTTPException(status_code=403, detail="Sem permissão para esta etapa")
+    _authorize_company(current_user, stage.pipeline.company_id, db)
 
     # Impedir exclusão de etapa inicial
     if stage.is_first_stage:

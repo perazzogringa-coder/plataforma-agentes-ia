@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
 
@@ -30,6 +31,7 @@ AI_PROVIDER_TOKEN_ENCRYPTION_KEY_ENV = "AI_PROVIDER_TOKEN_ENCRYPTION_KEY"
 DEFAULT_OPENAI_VALIDATION_TIMEOUT_SECONDS = 15.0
 REQUIRED_OPENAI_RUNTIME_MODEL = "gpt-4o-mini"
 REQUIRED_OPENAI_TRANSCRIPTION_MODEL = "gpt-4o-transcribe"
+OPENAI_TRANSCRIPTION_MODEL_ENV = "OPENAI_TRANSCRIPTION_MODEL"
 AI_PROVIDER_CONFIGURATION_LOCK_PREFIX = "agentive:ai-provider:configuration"
 
 OPENAI_MODEL_ALLOWLIST = (
@@ -44,6 +46,20 @@ OPENAI_MODEL_ALLOWLIST = (
     "gpt-5.4-pro",
     "gpt-4o-mini",
 )
+# Only surface documented, non-secret error codes.  Provider-controlled values
+# must never be reflected just because they happen to match a character pattern.
+_SAFE_PROVIDER_ERROR_CODES = frozenset(
+    {
+        "incorrect_api_key",
+        "insufficient_quota",
+        "invalid_api_key",
+        "invalid_request_error",
+        "model_not_found",
+        "rate_limit_exceeded",
+        "unsupported_parameter",
+    }
+)
+_SAFE_PROVIDER_REQUEST_ID = re.compile(r"^req_[A-Za-z0-9_-]{1,124}$")
 
 
 class AIProviderCredentialError(RuntimeError):
@@ -226,7 +242,62 @@ def _filter_supported_models(models: Iterable[Any]) -> list[str]:
     ]
 
 
-def _validation_error_from_exception(exc: Exception) -> AIProviderValidationError:
+def _configured_openai_transcription_model() -> str:
+    """Return the same transcription-model default used by media processing."""
+
+    return (
+        os.getenv(
+            OPENAI_TRANSCRIPTION_MODEL_ENV,
+            REQUIRED_OPENAI_TRANSCRIPTION_MODEL,
+        ).strip()
+        or REQUIRED_OPENAI_TRANSCRIPTION_MODEL
+    )
+
+
+def _validation_error_from_exception(
+    exc: Exception,
+    *,
+    stage: Optional[str] = None,
+) -> AIProviderValidationError:
+    if isinstance(exc, APIStatusError):
+        status_code = int(getattr(exc, "status_code", 0) or 0)
+        body = getattr(exc, "body", None)
+        error = body.get("error", body) if isinstance(body, dict) else {}
+        raw_code = error.get("code") if isinstance(error, dict) else None
+        code = str(raw_code).strip() if raw_code is not None else ""
+        safe_code = code if code in _SAFE_PROVIDER_ERROR_CODES else ""
+        detail = f"HTTP {status_code}" if status_code else "HTTP desconhecido"
+        if safe_code:
+            detail = f"{detail}, código {safe_code}"
+        request_id = str(getattr(exc, "request_id", "") or "").strip()
+        if _SAFE_PROVIDER_REQUEST_ID.fullmatch(request_id):
+            detail = f"{detail}, request_id {request_id}"
+        if stage:
+            detail = f"etapa {stage}; {detail}"
+
+        if status_code == 401:
+            return AIProviderValidationError(
+                f"Chave OpenAI inválida, revogada ou sem acesso ao projeto ({detail})",
+                credential_status="invalid",
+                http_status_code=400,
+            )
+        if status_code == 403:
+            return AIProviderValidationError(
+                f"A chave OpenAI não possui permissão para a operação solicitada ({detail})",
+                credential_status="invalid",
+                http_status_code=400,
+            )
+        if status_code == 429:
+            return AIProviderValidationError(
+                f"A OpenAI recusou temporariamente a validação por limite de uso ({detail})",
+                credential_status="error",
+                http_status_code=503,
+            )
+        return AIProviderValidationError(
+            f"A OpenAI recusou a validação da chave ({detail})",
+            credential_status="error" if status_code >= 500 else "invalid",
+            http_status_code=503 if status_code >= 500 else 400,
+        )
     if isinstance(exc, AuthenticationError):
         return AIProviderValidationError(
             "Chave OpenAI inválida ou sem autorização",
@@ -257,8 +328,9 @@ def _validation_error_from_exception(exc: Exception) -> AIProviderValidationErro
             credential_status="invalid",
             http_status_code=400,
         )
+    stage_detail = f" na etapa {stage}" if stage else ""
     return AIProviderValidationError(
-        "Não foi possível validar a chave OpenAI",
+        f"Não foi possível validar a chave OpenAI{stage_detail}",
         credential_status="error",
         http_status_code=503,
     )
@@ -284,7 +356,13 @@ def validate_openai_api_key(
             timeout=timeout_seconds,
             max_retries=0,
         )
-        models_page = client.models.list()
+        try:
+            models_page = client.models.list()
+        except Exception as exc:
+            raise _validation_error_from_exception(
+                exc,
+                stage="list_models",
+            ) from None
         models = getattr(models_page, "data", models_page)
         model_items = list(models or [])
         available_model_ids = {
@@ -295,14 +373,22 @@ def validate_openai_api_key(
         supported_models = _filter_supported_models(model_items)
         if (
             REQUIRED_OPENAI_RUNTIME_MODEL in supported_models
-            and REQUIRED_OPENAI_TRANSCRIPTION_MODEL in available_model_ids
+            and _configured_openai_transcription_model() in available_model_ids
         ):
-            client.responses.create(
-                model=REQUIRED_OPENAI_RUNTIME_MODEL,
-                input="Responda apenas OK.",
-                max_output_tokens=1,
-                store=False,
-            )
+            try:
+                client.responses.create(
+                    model=REQUIRED_OPENAI_RUNTIME_MODEL,
+                    input="Responda apenas OK.",
+                    max_output_tokens=16,
+                    store=False,
+                )
+            except Exception as exc:
+                raise _validation_error_from_exception(
+                    exc,
+                    stage="responses_probe",
+                ) from None
+    except AIProviderValidationError:
+        raise
     except Exception as exc:
         raise _validation_error_from_exception(exc) from None
     finally:
@@ -325,9 +411,11 @@ def validate_openai_api_key(
             credential_status="invalid",
             http_status_code=400,
         )
-    if REQUIRED_OPENAI_TRANSCRIPTION_MODEL not in available_model_ids:
+    transcription_model = _configured_openai_transcription_model()
+    if transcription_model not in available_model_ids:
         raise AIProviderValidationError(
-            f"A chave OpenAI não possui acesso ao modelo de transcrição usado pela {APP_NAME}",
+            "A chave OpenAI não possui acesso ao modelo de transcrição "
+            f"usado pela {APP_NAME} ({transcription_model})",
             credential_status="invalid",
             http_status_code=400,
         )
