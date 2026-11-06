@@ -20,9 +20,10 @@ WAHA audit/retry behavior and adds only these tenant fixes:
   `follow-redirects`, `nanoid`, and `source-map-js`) and removal of unused
   development-only `@shadcn/ui`, which removed the vulnerable Zod 3 chain.
 
-The remaining `deepmerge-ts` advisory is transitively fixed at version 8, but
-the currently used `flowbite-react` pins version 7.1.5. No incompatible
-override, downgrade, or library replacement is included in this release.
+`flowbite-react` was limited to the isolated Mono dashboard and Vite plugin.
+It was removed in favor of native controls using the existing Mono CSS, which
+eliminates the transitive `deepmerge-ts` advisory without an incompatible
+override or a dashboard rewrite.
 
 No database migration belongs to this release. Migration `0005` is retained
 only because it is already part of the active API history and matches the
