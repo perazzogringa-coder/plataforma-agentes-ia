@@ -388,10 +388,14 @@
 }
 
 .mono-tooltip-target {
+  position: relative;
   display: inline-flex;
 }
 
 .mono-tooltip {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
   z-index: var(--mono-z-tooltip);
   border: 1px solid var(--mono-hairline);
   border-radius: var(--mono-r-sm);

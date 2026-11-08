@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Button, Select, Tooltip } from 'flowbite-react';
 import { CalendarRange, ChevronDown, Check } from 'lucide-react';
 import type { DashboardDateRange } from '../types';
 import { formatDateToYYYYMMDD, formatDisplayDate } from '../utils/format';
@@ -17,12 +16,6 @@ const variantClass: Record<ButtonVariant, string> = {
   ghost: ' mono-btn--ghost',
 };
 
-const variantColor: Record<ButtonVariant, string> = {
-  default: 'monoDefault',
-  primary: 'monoPrimary',
-  ghost: 'monoGhost',
-};
-
 const joinClasses = (...classes: Array<string | undefined | false>) => classes.filter(Boolean).join(' ');
 
 export const MonoButton: React.FC<ButtonProps> = ({
@@ -31,15 +24,13 @@ export const MonoButton: React.FC<ButtonProps> = ({
   variant = 'default',
   ...rest
 }) => (
-  <Button
+  <button
     className={joinClasses('mono-btn', variantClass[variant].trim(), className)}
-    color={variantColor[variant]}
-    size="mono"
     type="button"
     {...rest}
   >
     {children}
-  </Button>
+  </button>
 );
 
 /* ---------------- IconButton ---------------- */
@@ -47,28 +38,44 @@ interface IconButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> 
   label: string;
 }
 
-export const MonoIconButton: React.FC<IconButtonProps> = ({ children, className, label, ...rest }) => (
-  <Tooltip arrow={false} content={label} placement="top" style="auto">
-    <Button
-      aria-label={label}
-      className={joinClasses('mono-icon-btn', className)}
-      color="monoIcon"
-      size="monoIcon"
-      type="button"
-      {...rest}
-    >
-      {children}
-    </Button>
-  </Tooltip>
-);
+export const MonoIconButton: React.FC<IconButtonProps> = ({ children, className, label, ...rest }) => {
+  const [isTooltipVisible, setIsTooltipVisible] = useState(false);
+  const tooltipId = React.useId();
+
+  return (
+    <span className="mono-tooltip-target">
+      <button
+        aria-label={label}
+        aria-describedby={isTooltipVisible ? tooltipId : undefined}
+        className={joinClasses('mono-icon-btn', className)}
+        data-tooltip={label}
+        onBlur={() => setIsTooltipVisible(false)}
+        onFocus={() => setIsTooltipVisible(true)}
+        onMouseEnter={() => setIsTooltipVisible(true)}
+        onMouseLeave={() => setIsTooltipVisible(false)}
+        type="button"
+        {...rest}
+      >
+        {children}
+      </button>
+      <span
+        className={joinClasses('mono-tooltip', !isTooltipVisible && 'mono-tooltip--hidden')}
+        id={tooltipId}
+        role="tooltip"
+      >
+        <span className="mono-tooltip-content">{label}</span>
+      </span>
+    </span>
+  );
+};
 
 interface MonoSelectProps extends Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'color'> {}
 
 export const MonoSelect = React.forwardRef<HTMLSelectElement, MonoSelectProps>(
-  ({ children, ...rest }, ref) => (
-    <Select color="mono" ref={ref} sizing="mono" {...rest}>
+  ({ children, className, ...rest }, ref) => (
+    <select className={joinClasses('mono-select', className)} ref={ref} {...rest}>
       {children}
-    </Select>
+    </select>
   ),
 );
 MonoSelect.displayName = 'MonoSelect';
@@ -205,15 +212,13 @@ export const MonoDateRange: React.FC<DateRangeProps> = ({ dateRange, disabled, o
 
   return (
     <div className="mono-date-picker" ref={containerRef}>
-      <Button
+      <button
         aria-expanded={isOpen}
         aria-haspopup="dialog"
         className="mono-date-trigger"
-        color="monoDate"
         disabled={disabled}
         id={triggerId}
         onClick={() => setIsOpen((current) => !current)}
-        size="mono"
         type="button"
       >
         <CalendarRange />
@@ -221,7 +226,7 @@ export const MonoDateRange: React.FC<DateRangeProps> = ({ dateRange, disabled, o
           {formatDisplayDate(dateRange.startDate)} — {formatDisplayDate(dateRange.endDate)}
         </span>
         <ChevronDown />
-      </Button>
+      </button>
 
       {isOpen && (
         <div aria-labelledby={triggerId} className="mono-date-menu" role="dialog">

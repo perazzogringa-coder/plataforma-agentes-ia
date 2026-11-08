@@ -1,5 +1,4 @@
 import React, { useMemo } from 'react';
-import { Alert, Badge, ThemeProvider } from 'flowbite-react';
 import {
   BarChart3,
   Clock,
@@ -25,7 +24,6 @@ import { MonoSources } from './Bars/MonoSources';
 import { MonoForecast } from './Bars/MonoForecast';
 import { MonoChart } from './Chart/MonoChart';
 import { MonoTimeline } from './Timeline/MonoTimeline';
-import { monoFlowbiteClearTheme, monoFlowbiteProps, monoFlowbiteTheme } from './flowbiteTheme';
 
 const DEFAULT_SOURCE_OPTIONS: SourceOption[] = [
   { label: 'Todas as origens', value: '' },
@@ -67,13 +65,7 @@ const MonoDashboard: React.FC<MonoDashboardProps> = ({
   const sourceOptionsResolved = sourceOptions ?? DEFAULT_SOURCE_OPTIONS;
 
   return (
-    <ThemeProvider
-      clearTheme={monoFlowbiteClearTheme}
-      props={monoFlowbiteProps}
-      root
-      theme={monoFlowbiteTheme}
-    >
-      <main className={`mono-dashboard ${isDark ? 'mono-dashboard--dark' : ''}`}>
+    <main className={`mono-dashboard ${isDark ? 'mono-dashboard--dark' : ''}`}>
       <a className="mono-skip-link" href="#mono-content">
         Pular para o conteúdo
       </a>
@@ -103,9 +95,10 @@ const MonoDashboard: React.FC<MonoDashboardProps> = ({
         </header>
 
         {(shareError || errorMessage) && (
-          <Alert color="failure" icon={Share2}>
+          <div className="mono-alert mono-alert--danger" role="alert">
+            <Share2 aria-hidden="true" className="mono-alert-icon" />
             <span>{shareError || errorMessage}</span>
-          </Alert>
+          </div>
         )}
 
         {showFilters && (
@@ -167,7 +160,7 @@ const MonoDashboard: React.FC<MonoDashboardProps> = ({
         <section className="mono-main-grid">
           <div className="mono-stack">
             <MonoPanel
-              action={<Badge icon={LineChartIcon}>Linha diária</Badge>}
+              action={<span className="mono-badge"><LineChartIcon aria-hidden="true" size={14} />Linha diária</span>}
               description="Movimento de entrada e avanço no funil durante o período."
               icon={<BarChart3 size={16} />}
               title="Evolução diária"
@@ -218,8 +211,7 @@ const MonoDashboard: React.FC<MonoDashboardProps> = ({
           </aside>
         </section>
       </div>
-      </main>
-    </ThemeProvider>
+    </main>
   );
 };
 
