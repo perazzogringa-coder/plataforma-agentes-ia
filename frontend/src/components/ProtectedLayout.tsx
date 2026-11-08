@@ -405,11 +405,14 @@ const ProtectedLayout: React.FC = () => {
         </main>
         <MobileNav
           activeCompanyId={companyId}
+          companyLogoUrl={companyLogoUrl}
           companies={userCompanies}
+          isDark={isDark}
           menuItems={mobileMenuItems}
           moreMenuItems={mobileMoreMenuItems}
           onLogout={() => setShowLogoutModal(true)}
           onSelectCompany={handleSelectCompany}
+          workspaceName={workspaceName}
         />
       </div>
 

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Building2, Check, LogOut, Menu, X, type LucideIcon } from 'lucide-react';
 import type { UserCompany } from '../../services/api';
+import { branding } from '../../config/branding';
 import styles from './MobileNav.module.css';
 
 interface MobileNavItemProps {
@@ -40,7 +41,9 @@ export const MobileNavItem: React.FC<MobileNavItemProps> = ({
 
 interface MobileNavProps {
   activeCompanyId: string | null;
+  companyLogoUrl: string | null;
   companies: UserCompany[];
+  isDark: boolean;
   menuItems: {
     path: string;
     icon: LucideIcon | React.FC<any>;
@@ -57,10 +60,15 @@ interface MobileNavProps {
   }[];
   onLogout: () => void;
   onSelectCompany: (id: number) => void;
+  workspaceName: string;
 }
 
-const MobileNav: React.FC<MobileNavProps> = ({ activeCompanyId, companies, menuItems, moreMenuItems, onLogout, onSelectCompany }) => {
+const MobileNav: React.FC<MobileNavProps> = ({ activeCompanyId, companyLogoUrl, companies, isDark, menuItems, moreMenuItems, onLogout, onSelectCompany, workspaceName }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const activeCompany = companies.find((company) => company.company_id.toString() === activeCompanyId);
+  const activeCompanyName = activeCompany?.name_company || workspaceName;
+  const activeCompanyLogoUrl = activeCompany?.logo_url?.trim() || companyLogoUrl;
+  const platformLogo = isDark ? branding.assets.logoDark : branding.assets.logoLight;
 
   return (
     <nav className={styles.navContainer} data-agentive-mobile-nav="true">
@@ -75,6 +83,7 @@ const MobileNav: React.FC<MobileNavProps> = ({ activeCompanyId, companies, menuI
           <section id="mobile-full-menu" className={styles.menuSheet} aria-label="Menu completo">
             <div className={styles.menuSheetHeader}>
               <div>
+                <img className={styles.platformLogo} src={platformLogo} alt={branding.appName} />
                 <p className={styles.menuEyebrow}>Navegação</p>
                 <h2 className={styles.menuTitle}>Menu completo</h2>
               </div>
@@ -83,6 +92,17 @@ const MobileNav: React.FC<MobileNavProps> = ({ activeCompanyId, companies, menuI
               </button>
             </div>
             <div className={styles.menuList}>
+              <div className={styles.activeCompany}>
+                {activeCompanyLogoUrl ? (
+                  <img className={styles.activeCompanyLogo} src={activeCompanyLogoUrl} alt={activeCompanyName} />
+                ) : (
+                  <span className={styles.activeCompanyFallback}><Building2 className={styles.icon} /></span>
+                )}
+                <span>
+                  <span className={styles.activeCompanyLabel}>Empresa ativa</span>
+                  <span className={styles.activeCompanyName}>{activeCompanyName}</span>
+                </span>
+              </div>
               {companies.length > 0 && (
                 <div className={styles.companySection}>
                   <p className={styles.menuSection}>Empresa</p>
