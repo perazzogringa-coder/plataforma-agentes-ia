@@ -4,7 +4,7 @@ const cleanText = (value: string | undefined, fallback: string): string => {
 };
 
 export const branding = Object.freeze({
-  appName: cleanText(import.meta.env.VITE_APP_NAME, 'SUA_EMPRESA'),
+  appName: cleanText(import.meta.env.VITE_APP_NAME, 'NextGenAI'),
   appDescription: cleanText(
     import.meta.env.VITE_APP_DESCRIPTION,
     'Plataforma de atendimento, CRM e automacoes com IA',
@@ -12,10 +12,10 @@ export const branding = Object.freeze({
   supportName: cleanText(import.meta.env.VITE_SUPPORT_NAME, 'Equipe de suporte'),
   supportEmail: cleanText(import.meta.env.VITE_SUPPORT_EMAIL, 'suporte@seu-dominio.com'),
   assets: Object.freeze({
-    logoLight: '/branding/logo-light.svg',
-    logoDark: '/branding/logo-dark.svg',
-    icon: '/branding/icon.svg',
-    iconWhite: '/branding/icon-white.svg',
+    logoLight: '/branding/nextgenai-logo-light.png',
+    logoDark: '/branding/nextgenai-logo-dark.png',
+    icon: '/branding/nextgenai-icon.png',
+    iconWhite: '/branding/nextgenai-icon.png',
   }),
 });
 
