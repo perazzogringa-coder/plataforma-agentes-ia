@@ -4837,7 +4837,7 @@ const AgentBuilder: React.FC = () => {
 
     return (
         <div className={agentivePageClass(isDark, 'p-3 pb-[calc(7rem+env(safe-area-inset-bottom))] sm:p-4 sm:pb-4')}>
-            <section className={`flex min-h-[calc(100vh-1.5rem-7rem)] flex-col overflow-hidden rounded-[24px] border shadow-[0_22px_55px_rgba(2,3,35,0.12)] sm:h-[calc(100vh-2rem)] sm:min-h-0 ${panelClass}`}>
+            <section className={`flex min-h-[calc(100dvh-1.5rem-7rem)] flex-col overflow-hidden rounded-[24px] border shadow-[0_22px_55px_rgba(2,3,35,0.12)] lg:h-[calc(100dvh-2rem)] lg:min-h-0 ${panelClass}`}>
             <header className={`z-20 border-b px-4 py-3 ${isDark ? 'border-white/10 bg-brand' : 'border-brand/10 bg-white'}`}>
                 <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                     <div className="flex min-w-0 items-center gap-3">

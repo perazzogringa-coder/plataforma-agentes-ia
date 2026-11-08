@@ -1613,7 +1613,7 @@ export default function CRMv4() {
   const softSurfaceClass = 'crm-modern-subtle';
   return (
     <div className={cx(
-      'crm-workspace flex h-[100dvh] min-h-0 flex-col overflow-hidden sm:h-screen',
+      'crm-workspace flex h-[100dvh] min-h-0 flex-col overflow-hidden lg:h-screen',
       isDark && 'crm-workspace--dark'
     )}>
       <style>{`

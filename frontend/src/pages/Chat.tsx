@@ -236,7 +236,9 @@ interface Contact {
 
 const ChatPage5: React.FC = () => {
   // Hook para detectar se é mobile - DEVE vir antes de qualquer condicional
-  const isMobile = useIsMobile(768);
+  // Keep the conversation view in its single-column mode while the app shell
+  // uses the compact navigation (below the desktop sidebar breakpoint).
+  const isMobile = useIsMobile(1024);
   const location = useLocation();
   const { isDark } = useTheme();
 
@@ -1878,7 +1880,7 @@ const ChatPage5: React.FC = () => {
 
   // Renderização para desktop
   return (
-    <div className={cx('flex h-screen flex-col overflow-hidden lg:h-[calc(100vh-4rem)]', isDark ? 'bg-brand text-white' : 'bg-brand-canvas text-brand')}>
+    <div className={cx('flex min-h-[100dvh] flex-col overflow-hidden lg:h-[calc(100vh-4rem)] lg:min-h-0', isDark ? 'bg-brand text-white' : 'bg-brand-canvas text-brand')}>
       <div className="flex min-h-0 flex-1 gap-3 p-3 lg:p-4">
         {/* Sidebar - Sempre visível no desktop, condicional no mobile */}
         <aside className={cx(`
