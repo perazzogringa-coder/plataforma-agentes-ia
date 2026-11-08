@@ -956,8 +956,8 @@ const FlowBuilderCanvas: React.FC = () => {
     const inspectorColumnWidth = isInspectorPanelOpen ? `${FLOW_INSPECTOR_PANEL_WIDTH}px` : `${FLOW_PANEL_RAIL_WIDTH}px`;
 
     return (
-        <div className={`min-h-screen p-3 pb-[calc(7rem+env(safe-area-inset-bottom))] sm:p-4 sm:pb-4 ${isDark ? 'bg-brand text-white' : 'bg-brand-canvas text-brand'}`}>
-            <section className={`flex min-h-[calc(100vh-1.5rem-7rem)] flex-col overflow-hidden rounded-[24px] border shadow-[0_22px_55px_rgba(2,3,35,0.12)] sm:h-[calc(100vh-2rem)] sm:min-h-0 ${
+        <div className={`min-h-[100dvh] p-3 pb-[calc(7rem+env(safe-area-inset-bottom))] sm:p-4 sm:pb-4 ${isDark ? 'bg-brand text-white' : 'bg-brand-canvas text-brand'}`}>
+            <section className={`flex min-h-[calc(100dvh-1.5rem-7rem)] flex-col overflow-hidden rounded-[24px] border shadow-[0_22px_55px_rgba(2,3,35,0.12)] lg:h-[calc(100dvh-2rem)] lg:min-h-0 ${
                 isDark ? 'border-white/10 bg-brand text-white' : 'border-brand/10 bg-white text-brand'
             }`}>
                 <header className={`z-20 border-b px-4 py-3 ${isDark ? 'border-white/10 bg-brand' : 'border-brand/10 bg-white'}`}>
