@@ -1,28 +1,19 @@
 import React from 'react';
-import { Alert, Button, Spinner, ThemeProvider } from 'flowbite-react';
-import { AlertCircle, RefreshCw } from 'lucide-react';
-import { monoFlowbiteClearTheme, monoFlowbiteProps, monoFlowbiteTheme } from '../flowbiteTheme';
+import { AlertCircle, Loader2, RefreshCw } from 'lucide-react';
 
 interface FullPageProps {
   isDark: boolean;
 }
 
 export const MonoLoading: React.FC<FullPageProps> = ({ isDark }) => (
-  <ThemeProvider
-    clearTheme={monoFlowbiteClearTheme}
-    props={monoFlowbiteProps}
-    root
-    theme={monoFlowbiteTheme}
-  >
-    <div className={`mono-dashboard ${isDark ? 'mono-dashboard--dark' : ''}`}>
-      <div className="mono-loading-page">
-        <div className="mono-loading-box">
-          <Spinner aria-label="Carregando métricas" color="mono" size="lg" />
-          <p>Carregando métricas...</p>
-        </div>
+  <div className={`mono-dashboard ${isDark ? 'mono-dashboard--dark' : ''}`}>
+    <div className="mono-loading-page">
+      <div className="mono-loading-box">
+        <Loader2 aria-label="Carregando métricas" className="mono-spinner-svg" role="status" />
+        <p>Carregando métricas...</p>
       </div>
     </div>
-  </ThemeProvider>
+  </div>
 );
 
 interface ErrorPageProps extends FullPageProps {
@@ -31,27 +22,21 @@ interface ErrorPageProps extends FullPageProps {
 }
 
 export const MonoError: React.FC<ErrorPageProps> = ({ error, isDark, onRefresh }) => (
-  <ThemeProvider
-    clearTheme={monoFlowbiteClearTheme}
-    props={monoFlowbiteProps}
-    root
-    theme={monoFlowbiteTheme}
-  >
-    <div className={`mono-dashboard ${isDark ? 'mono-dashboard--dark' : ''}`}>
-      <div className="mono-error-page">
-        <div className="mono-error-box">
-          <h1 className="mono-title">Erro ao carregar dados</h1>
-          <Alert className="mono-error-alert" color="failure" icon={AlertCircle}>
-            <span>{error}</span>
-          </Alert>
-          <Button className="mono-btn mono-btn--primary" color="monoPrimary" onClick={onRefresh} size="mono" type="button">
-            <RefreshCw />
-            Tentar novamente
-          </Button>
+  <div className={`mono-dashboard ${isDark ? 'mono-dashboard--dark' : ''}`}>
+    <div className="mono-error-page">
+      <div className="mono-error-box">
+        <h1 className="mono-title">Erro ao carregar dados</h1>
+        <div className="mono-alert mono-alert--danger mono-error-alert" role="alert">
+          <AlertCircle aria-hidden="true" className="mono-alert-icon" />
+          <span>{error}</span>
         </div>
+        <button className="mono-btn mono-btn--primary" onClick={onRefresh} type="button">
+          <RefreshCw />
+          Tentar novamente
+        </button>
       </div>
     </div>
-  </ThemeProvider>
+  </div>
 );
 
 interface EmptyProps {
