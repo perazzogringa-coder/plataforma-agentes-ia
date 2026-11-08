@@ -4935,8 +4935,7 @@ const AgentBuilder: React.FC = () => {
 
             <div
                 className={cx(
-                    'grid min-h-0 flex-1 grid-cols-1 gap-3 p-3 lg:grid-cols-[var(--agent-builder-library-width)_minmax(0,1fr)]',
-                    '2xl:grid-cols-[var(--agent-builder-library-width)_minmax(0,1fr)_var(--agent-builder-inspector-width)]',
+                    'grid min-h-0 flex-1 grid-cols-1 gap-3 p-3 lg:grid-cols-[var(--agent-builder-library-width)_minmax(0,1fr)_var(--agent-builder-inspector-width)]',
                     isDark ? 'bg-white/[0.025]' : 'bg-brand-canvas'
                 )}
                 style={{
@@ -5201,21 +5200,11 @@ const AgentBuilder: React.FC = () => {
                     </ReactFlow>
                 </main>
 
-                {isInspectorDrawerOpen && (
-                    <button
-                        type="button"
-                        onClick={() => setIsInspectorDrawerOpen(false)}
-                        className="fixed inset-0 z-[60] bg-brand/45 backdrop-blur-sm 2xl:hidden"
-                        aria-label="Fechar painel de configuração"
-                    />
-                )}
-
                 <aside className={cx(
-                    'min-h-0 flex-col overflow-hidden rounded-2xl border shadow-flat-md',
+                    'min-h-0 flex-col overflow-hidden rounded-2xl border shadow-flat-md lg:flex',
                     isInspectorDrawerOpen
-                        ? 'fixed bottom-3 right-3 top-3 z-[70] flex w-[min(420px,calc(100vw-1.5rem))]'
+                        ? 'flex'
                         : 'hidden',
-                    '2xl:relative 2xl:bottom-auto 2xl:right-auto 2xl:top-auto 2xl:z-auto 2xl:flex 2xl:w-auto',
                     isDark ? 'border-white/10 bg-brand' : 'border-brand/10 bg-white'
                 )}>
                     {!isInspectorPanelOpen ? (
