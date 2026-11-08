@@ -5,6 +5,12 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: "Commit SHA exato do código que será compilado no artefato frontend"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -121,12 +127,17 @@ jobs:
         run: npm run build
 
   frontend-release-artifact:
-    # This job deliberately builds the approved source revision, not the
-    # workflow-only commit that requests the artifact upload.
+    # On manual runs, build exactly the reviewed source SHA rather than the
+    # workflow commit that requested artifact generation.
     runs-on: ubuntu-latest
     env:
-      SOURCE_SHA: a4367faaa94a9f6186a828e0d36546593eb50c1e
+      SOURCE_SHA: ${{ inputs.source_sha || github.event.pull_request.head.sha || github.sha }}
     steps:
+      - name: Validate requested source revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
       - name: Checkout approved frontend source
         uses: actions/checkout@v4
         with:
