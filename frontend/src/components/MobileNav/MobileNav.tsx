@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { LogOut, Menu, X, type LucideIcon } from 'lucide-react';
+import { Building2, Check, LogOut, Menu, X, type LucideIcon } from 'lucide-react';
+import type { UserCompany } from '../../services/api';
 import styles from './MobileNav.module.css';
 
 interface MobileNavItemProps {
@@ -38,6 +39,8 @@ export const MobileNavItem: React.FC<MobileNavItemProps> = ({
 };
 
 interface MobileNavProps {
+  activeCompanyId: string | null;
+  companies: UserCompany[];
   menuItems: {
     path: string;
     icon: LucideIcon | React.FC<any>;
@@ -53,9 +56,10 @@ interface MobileNavProps {
     isActive: boolean;
   }[];
   onLogout: () => void;
+  onSelectCompany: (id: number) => void;
 }
 
-const MobileNav: React.FC<MobileNavProps> = ({ menuItems, moreMenuItems, onLogout }) => {
+const MobileNav: React.FC<MobileNavProps> = ({ activeCompanyId, companies, menuItems, moreMenuItems, onLogout, onSelectCompany }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   return (
@@ -79,6 +83,31 @@ const MobileNav: React.FC<MobileNavProps> = ({ menuItems, moreMenuItems, onLogou
               </button>
             </div>
             <div className={styles.menuList}>
+              {companies.length > 0 && (
+                <div className={styles.companySection}>
+                  <p className={styles.menuSection}>Empresa</p>
+                  {companies.map((company) => {
+                    const isActiveCompany = company.company_id.toString() === activeCompanyId;
+                    const companyName = company.name_company || `Empresa ${company.company_id}`;
+
+                    return (
+                      <button
+                        key={company.company_id}
+                        type="button"
+                        className={`${styles.companyButton} ${isActiveCompany ? styles.companyButtonActive : ''}`}
+                        onClick={() => {
+                          setIsMenuOpen(false);
+                          onSelectCompany(company.company_id);
+                        }}
+                      >
+                        <Building2 className={styles.icon} />
+                        <span>{companyName}</span>
+                        {isActiveCompany && <Check className={styles.companyCheck} />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               {moreMenuItems.map((item, index) => {
                 const Icon = item.icon;
                 const showSection = index === 0 || moreMenuItems[index - 1].section !== item.section;
