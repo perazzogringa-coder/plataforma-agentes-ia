@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { LogOut, type LucideIcon } from 'lucide-react';
+import { LogOut, Menu, X, type LucideIcon } from 'lucide-react';
 import styles from './MobileNav.module.css';
 
 interface MobileNavItemProps {
@@ -45,12 +45,62 @@ interface MobileNavProps {
     isActive: boolean;
     status?: string;
   }[];
+  moreMenuItems: {
+    path: string;
+    icon: LucideIcon | React.FC<any>;
+    label: string;
+    section: string;
+    isActive: boolean;
+  }[];
   onLogout: () => void;
 }
 
-const MobileNav: React.FC<MobileNavProps> = ({ menuItems, onLogout }) => {
+const MobileNav: React.FC<MobileNavProps> = ({ menuItems, moreMenuItems, onLogout }) => {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
   return (
     <nav className={styles.navContainer} data-agentive-mobile-nav="true">
+      {isMenuOpen && (
+        <>
+          <button
+            type="button"
+            className={styles.menuBackdrop}
+            onClick={() => setIsMenuOpen(false)}
+            aria-label="Fechar menu"
+          />
+          <section id="mobile-full-menu" className={styles.menuSheet} aria-label="Menu completo">
+            <div className={styles.menuSheetHeader}>
+              <div>
+                <p className={styles.menuEyebrow}>Navegação</p>
+                <h2 className={styles.menuTitle}>Menu completo</h2>
+              </div>
+              <button type="button" className={styles.menuCloseButton} onClick={() => setIsMenuOpen(false)} aria-label="Fechar menu">
+                <X className={styles.icon} />
+              </button>
+            </div>
+            <div className={styles.menuList}>
+              {moreMenuItems.map((item, index) => {
+                const Icon = item.icon;
+                const showSection = index === 0 || moreMenuItems[index - 1].section !== item.section;
+                return (
+                  <React.Fragment key={item.path}>
+                    {showSection && <p className={styles.menuSection}>{item.section}</p>}
+                    <Link
+                      to={item.path}
+                      className={`${styles.menuLink} ${item.isActive ? styles.menuLinkActive : ''}`}
+                      onClick={() => setIsMenuOpen(false)}
+                      aria-current={item.isActive ? 'page' : undefined}
+                    >
+                      <Icon className={styles.icon} />
+                      <span>{item.label}</span>
+                    </Link>
+                  </React.Fragment>
+                );
+              })}
+            </div>
+          </section>
+        </>
+      )}
       <div className={styles.glassContainer}>
         {menuItems.map((item) => (
           <MobileNavItem
@@ -62,6 +112,16 @@ const MobileNav: React.FC<MobileNavProps> = ({ menuItems, onLogout }) => {
             status={item.status}
           />
         ))}
+        <button
+          type="button"
+          onClick={() => setIsMenuOpen(true)}
+          className={styles.menuButton}
+          aria-expanded={isMenuOpen}
+          aria-controls="mobile-full-menu"
+        >
+          <Menu className={styles.icon} />
+          <span className={styles.label}>Menu</span>
+        </button>
         <button
           type="button"
           onClick={onLogout}
