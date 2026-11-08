@@ -399,8 +399,8 @@ const ProtectedLayout: React.FC = () => {
       </div>
 
       {/* MOBILE NAVIGATION */}
-      <div className="flex min-h-screen flex-col lg:hidden">
-        <main className="agentive-mobile-main min-w-0 flex-1 overflow-x-hidden overflow-y-auto pb-[calc(7rem+env(safe-area-inset-bottom))]">
+      <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden lg:hidden">
+        <main className="agentive-mobile-main min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto pb-[calc(7rem+env(safe-area-inset-bottom))]">
           <Outlet />
         </main>
         <MobileNav

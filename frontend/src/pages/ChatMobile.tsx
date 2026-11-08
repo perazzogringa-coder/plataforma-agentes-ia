@@ -162,25 +162,6 @@ const ChatMobile: React.FC = () => {
   const [profileError, setProfileError] = useState<string | null>(null);
   const [isConvertingLead, setIsConvertingLead] = useState(false);
 
-  // Aplicar reset de CSS para mobile ao montar
-  React.useEffect(() => {
-    // Salvar overflow original
-    const originalOverflow = document.body.style.overflow;
-    const originalPosition = document.body.style.position;
-
-    // Prevenir scroll no body
-    document.body.style.overflow = 'hidden';
-    document.body.style.position = 'fixed';
-    document.body.style.width = '100%';
-
-    // Cleanup ao desmontar
-    return () => {
-      document.body.style.overflow = originalOverflow;
-      document.body.style.position = originalPosition;
-      document.body.style.width = '';
-    };
-  }, []);
-
   // Controlar visibilidade da navbar baseado na view
   React.useEffect(() => {
     const navbar = document.querySelector<HTMLElement>('[data-agentive-mobile-nav="true"]');
