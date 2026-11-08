@@ -120,6 +120,56 @@ jobs:
       - name: Build frontend for production
         run: npm run build
 
+  frontend-release-artifact:
+    # This job deliberately builds the approved source revision, not the
+    # workflow-only commit that requests the artifact upload.
+    runs-on: ubuntu-latest
+    env:
+      SOURCE_SHA: a4367faaa94a9f6186a828e0d36546593eb50c1e
+    steps:
+      - name: Checkout approved frontend source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          path: source
+      - name: Verify approved source revision
+        run: test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: source/frontend/package-lock.json
+      - name: Install locked frontend dependencies
+        working-directory: source/frontend
+        run: npm ci
+      - name: Type-check approved frontend
+        working-directory: source/frontend
+        run: npm run typecheck
+      - name: Build approved frontend
+        working-directory: source/frontend
+        run: npm run build
+      - name: Package verified frontend build
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact="nextgenai-frontend-dist-${SOURCE_SHA}.tar.gz"
+          tar --owner=0 --group=0 --numeric-owner -C source/frontend/build -czf "$artifact" .
+          sha256sum "$artifact" > "${artifact}.sha256"
+          printf 'source_sha=%s\nworkflow_run_id=%s\nbuilt_at_utc=%s\nartifact=%s\n' \
+            "$SOURCE_SHA" "$GITHUB_RUN_ID" "$(date -u +%FT%TZ)" "$artifact" \
+            > FRONTEND_ARTIFACT_MANIFEST
+          cat "${artifact}.sha256" >> FRONTEND_ARTIFACT_MANIFEST
+      - name: Upload verified frontend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nextgenai-frontend-dist-${{ env.SOURCE_SHA }}
+          path: |
+            nextgenai-frontend-dist-${{ env.SOURCE_SHA }}.tar.gz
+            nextgenai-frontend-dist-${{ env.SOURCE_SHA }}.tar.gz.sha256
+            FRONTEND_ARTIFACT_MANIFEST
+          if-no-files-found: error
+          retention-days: 14
+
   rbac-postgresql:
     runs-on: ubuntu-latest
     services:
