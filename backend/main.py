@@ -41,6 +41,7 @@ import asyncio
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from backend.routes.chat_ws import chat_router
 from backend.routes.media_routes import router as media_router
+from backend.routes.company_logo_media import router as company_logo_media_router
 from backend.routes import prompt_config, webhook, company
 from backend.routes.account_profile_routes import router as account_profile_router
 from fastapi.security import OAuth2PasswordRequestForm
@@ -343,6 +344,7 @@ app.add_middleware(WebhookCORSMiddleware)
 
 app.include_router(chat_router)
 app.include_router(media_router)
+app.include_router(company_logo_media_router)
 app.include_router(prompt_config.router)
 app.include_router(webhook.router, prefix="/webhook")
 app.include_router(waha_routes.router, prefix="/webhook", tags=["waha"])
