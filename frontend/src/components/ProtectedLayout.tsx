@@ -65,6 +65,7 @@ import {
 import { useUserPermissions } from '../hooks/useUserPermissions.ts';
 import { filterMenusByPermissions, type MenuItem, type SubItem } from '../services/permissionService.ts';
 import {
+  MODULE_META,
   SIDEBAR_MODULE_MENUS,
   resolveActiveModule,
   type ModuleKey,
@@ -228,6 +229,8 @@ const ProtectedLayout: React.FC = () => {
   const workspaceName = companyName || 'Minha Empresa';
   const workspaceInitials = getInitials(workspaceName);
   const userEmail = localStorage.getItem('user_email') || 'usuario@exemplo.com';
+  const userName = localStorage.getItem('user_name') || userEmail;
+  const userRole = localStorage.getItem('user_role') || (permissions.isMaster ? 'master' : 'staff');
   const activeCompany = companyId
     ? userCompanies.find((company) => company.company_id.toString() === companyId)
     : undefined;
@@ -294,6 +297,30 @@ const ProtectedLayout: React.FC = () => {
     ...item,
     isActive: isMobilePathActive(item.path)
   }));
+  const mobileMoreMenuItems = useMemo(() => {
+    const shortcutPaths = new Set(mobileMenuItems.map((item) => item.path));
+    const items: Array<{ path: string; icon: LucideIcon; label: string; section: string; isActive: boolean }> = [];
+
+    const collectItems = (entries: Array<MenuItem | SubItem>, section: string, fallbackIcon?: LucideIcon) => {
+      entries.forEach((entry) => {
+        const icon = entry.icon || fallbackIcon || LayoutDashboard;
+        if (entry.subItems?.length) {
+          collectItems(entry.subItems, section, icon);
+          return;
+        }
+        if (!shortcutPaths.has(entry.path) && !items.some((item) => item.path === entry.path)) {
+          items.push({ path: entry.path, icon, label: entry.label, section, isActive: isMobilePathActive(entry.path) });
+        }
+      });
+    };
+
+    (Object.keys(sidebarModuleMenus) as ModuleKey[]).forEach((moduleKey) => {
+      if (moduleKey === 'clientes' && isManagedCustomerWorkspace) return;
+      collectItems(sidebarModuleMenus[moduleKey], MODULE_META[moduleKey].label);
+    });
+
+    return items;
+  }, [isManagedCustomerWorkspace, location.pathname, mobileMenuItems, sidebarModuleMenus]);
   const isDrawerPathActive = (path: string, peerPaths: string[] = []) => {
     if (path === '/dashboard') return location.pathname === path;
     if (path === '/company') return location.pathname === '/company' || location.pathname === '/clinic';
@@ -330,7 +357,7 @@ const ProtectedLayout: React.FC = () => {
     <div className="agentive-app-shell flex flex-col">
 
       {/* DESKTOP NAVIGATION */}
-      <div className="flex flex-1 relative hidden sm:flex">
+      <div className="relative hidden flex-1 lg:flex">
       <Sidebar
         isCollapsed={!isDrawerOpen}
         navigationModule={navigationModule}
@@ -351,6 +378,8 @@ const ProtectedLayout: React.FC = () => {
         handleSelectCompany={handleSelectCompany}
         toggleTheme={toggleTheme}
         userEmail={userEmail}
+            userName={userName}
+            userRole={userRole}
         workspaceInitials={workspaceInitials}
         workspaceName={workspaceName}
         railItems={railItems}
@@ -359,7 +388,7 @@ const ProtectedLayout: React.FC = () => {
         {/* 3. MAIN CONTENT AREA */}
         <main
           className={`
-            agentive-app-main min-h-screen transition-all duration-200
+            agentive-app-main min-h-screen min-w-0 max-w-full transition-all duration-200
             p-0
           `}
           style={{ marginLeft: `${sidebarWidth}px`, width: `calc(100% - ${sidebarWidth}px)` }}
@@ -370,13 +399,20 @@ const ProtectedLayout: React.FC = () => {
       </div>
 
       {/* MOBILE NAVIGATION */}
-      <div className="sm:hidden flex flex-col min-h-screen">
-        <main className="agentive-mobile-main flex-1 overflow-y-auto pb-[calc(7rem+env(safe-area-inset-bottom))]">
+      <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden lg:hidden">
+        <main className="agentive-mobile-main min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto pb-[calc(7rem+env(safe-area-inset-bottom))]">
           <Outlet />
         </main>
         <MobileNav
+          activeCompanyId={companyId}
+          companyLogoUrl={companyLogoUrl}
+          companies={userCompanies}
+          isDark={isDark}
           menuItems={mobileMenuItems}
+          moreMenuItems={mobileMoreMenuItems}
           onLogout={() => setShowLogoutModal(true)}
+          onSelectCompany={handleSelectCompany}
+          workspaceName={workspaceName}
         />
       </div>
 

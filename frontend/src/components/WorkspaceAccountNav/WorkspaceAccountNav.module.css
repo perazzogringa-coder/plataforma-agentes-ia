@@ -50,6 +50,15 @@
   color: var(--text-primary, #111111);
 }
 
+.workspaceName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted, #a1a1aa);
+}
+
 .userEmail {
   overflow: hidden;
   text-overflow: ellipsis;

@@ -1388,6 +1388,8 @@ export async function login(
   clientId?: number;
   userType?: string;
   userId?: number;
+  userName?: string;
+  userRole?: string;
   userTeam?: string;
   team?: TeamPermissionPayload['team'];
   sidebarPermissions?: SidebarPermission[];
@@ -1410,6 +1412,8 @@ export async function login(
       clientId: resp.data.client_id,
       userType: resp.data.user_type,
       userId: resp.data.user_id,
+      userName: resp.data.user_name,
+      userRole: resp.data.user_role,
       userTeam: resp.data.user_team,
       team: resp.data.team,
       sidebarPermissions: resp.data.sidebar_permissions || [],
