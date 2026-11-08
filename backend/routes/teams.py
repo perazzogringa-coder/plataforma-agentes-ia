@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from backend.auth import get_current_user
 from backend.db import get_db
 from backend.models import Client, Pipeline, PipelineStage, Team, TeamPermission, User
+from backend.routes.users import UserAdministrationScope, resolve_user_administration_scope
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -92,23 +93,29 @@ class AssignUserRequest(BaseModel):
     user_id: int
 
 
-async def validate_master_or_admin_access(current_user: Union[Client, User]) -> Union[Client, User]:
-    """Valida se o usuário atual pode administrar equipes."""
-    if isinstance(current_user, Client):
-        return current_user
+async def resolve_team_administration_scope(
+    db: Session,
+    current_user: Union[Client, User],
+) -> UserAdministrationScope:
+    """Use the same server-derived company/owner boundary as user management."""
+    return await resolve_user_administration_scope(db, current_user)
 
-    if isinstance(current_user, User) and current_user.role in ["admin", "manager"]:
-        return current_user
 
-    logger.warning("Tentativa de acesso não autorizado às equipes por: %s", current_user.email)
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Acesso permitido apenas para administradores",
+def _invalidate_team_member_sessions(
+    db: Session,
+    team_id: int,
+    scope: UserAdministrationScope,
+) -> None:
+    """Force only members affected by a team permission change to reauthenticate."""
+    (
+        db.query(User)
+        .filter(
+            User.team_id == team_id,
+            User.company_id == scope.company_id,
+            User.client_id == scope.owner_client_id,
+        )
+        .update({User.auth_token_version: User.auth_token_version + 1}, synchronize_session=False)
     )
-
-
-def _current_company_id(current_user: Union[Client, User]) -> int:
-    return int(current_user.company_id)
 
 
 def _normalize_sidebar_permissions(values: List[str]) -> List[str]:
@@ -321,8 +328,8 @@ async def list_teams(
     db: Session = Depends(get_db),
     current_user: Union[Client, User] = Depends(get_current_user),
 ):
-    await validate_master_or_admin_access(current_user)
-    company_id = _current_company_id(current_user)
+    scope = await resolve_team_administration_scope(db, current_user)
+    company_id = scope.company_id
 
     teams = db.query(Team).filter(Team.company_id == company_id).order_by(Team.name.asc()).all()
     return [_team_to_response(db, team) for team in teams]
@@ -334,8 +341,8 @@ async def create_team(
     db: Session = Depends(get_db),
     current_user: Union[Client, User] = Depends(get_current_user),
 ):
-    await validate_master_or_admin_access(current_user)
-    company_id = _current_company_id(current_user)
+    scope = await resolve_team_administration_scope(db, current_user)
+    company_id = scope.company_id
     _validate_team_name_available(db, company_id, team_data.name)
 
     team = Team(
@@ -381,8 +388,8 @@ async def get_team(
     db: Session = Depends(get_db),
     current_user: Union[Client, User] = Depends(get_current_user),
 ):
-    await validate_master_or_admin_access(current_user)
-    team = _get_team_or_404(db, _current_company_id(current_user), team_id)
+    scope = await resolve_team_administration_scope(db, current_user)
+    team = _get_team_or_404(db, scope.company_id, team_id)
     return _team_to_response(db, team)
 
 
@@ -393,8 +400,8 @@ async def update_team(
     db: Session = Depends(get_db),
     current_user: Union[Client, User] = Depends(get_current_user),
 ):
-    await validate_master_or_admin_access(current_user)
-    company_id = _current_company_id(current_user)
+    scope = await resolve_team_administration_scope(db, current_user)
+    company_id = scope.company_id
     team = _get_team_or_404(db, company_id, team_id)
 
     update_data = team_data.dict(exclude_unset=True)
@@ -417,6 +424,7 @@ async def update_team(
 
     try:
         _apply_team_permissions(db, team, sidebar_permissions, contact_permissions)
+        _invalidate_team_member_sessions(db, team.id, scope)
         db.commit()
         db.refresh(team)
         logger.info("Equipe %s atualizada por %s", team.name, current_user.email)
@@ -446,11 +454,16 @@ async def delete_team(
     db: Session = Depends(get_db),
     current_user: Union[Client, User] = Depends(get_current_user),
 ):
-    await validate_master_or_admin_access(current_user)
-    team = _get_team_or_404(db, _current_company_id(current_user), team_id)
+    scope = await resolve_team_administration_scope(db, current_user)
+    team = _get_team_or_404(db, scope.company_id, team_id)
 
     try:
-        db.query(User).filter(User.team_id == team.id).update({"team_id": None}, synchronize_session=False)
+        _invalidate_team_member_sessions(db, team.id, scope)
+        db.query(User).filter(
+            User.team_id == team.id,
+            User.company_id == scope.company_id,
+            User.client_id == scope.owner_client_id,
+        ).update({"team_id": None}, synchronize_session=False)
         db.delete(team)
         db.commit()
         logger.info("Equipe %s excluída por %s", team.name, current_user.email)
@@ -467,11 +480,15 @@ async def list_team_users(
     db: Session = Depends(get_db),
     current_user: Union[Client, User] = Depends(get_current_user),
 ):
-    await validate_master_or_admin_access(current_user)
-    company_id = _current_company_id(current_user)
+    scope = await resolve_team_administration_scope(db, current_user)
+    company_id = scope.company_id
     _get_team_or_404(db, company_id, team_id)
 
-    users = db.query(User).filter(User.team_id == team_id, User.company_id == company_id).order_by(User.name.asc()).all()
+    users = db.query(User).filter(
+        User.team_id == team_id,
+        User.company_id == company_id,
+        User.client_id == scope.owner_client_id,
+    ).order_by(User.name.asc()).all()
     return [
         {
             "id": user.id,
@@ -492,16 +509,21 @@ async def assign_user_to_team(
     db: Session = Depends(get_db),
     current_user: Union[Client, User] = Depends(get_current_user),
 ):
-    await validate_master_or_admin_access(current_user)
-    company_id = _current_company_id(current_user)
+    scope = await resolve_team_administration_scope(db, current_user)
+    company_id = scope.company_id
     team = _get_team_or_404(db, company_id, team_id)
 
-    user = db.query(User).filter(User.id == request.user_id, User.company_id == company_id).first()
+    user = db.query(User).filter(
+        User.id == request.user_id,
+        User.company_id == company_id,
+        User.client_id == scope.owner_client_id,
+    ).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")
 
     try:
         user.team_id = team.id
+        user.auth_token_version = int(user.auth_token_version or 0) + 1
         db.commit()
         logger.info("Usuário %s atribuído à equipe %s por %s", user.email, team.name, current_user.email)
         return {"message": f"Usuário {user.name} atribuído à equipe {team.name} com sucesso"}
@@ -518,16 +540,22 @@ async def remove_user_from_team(
     db: Session = Depends(get_db),
     current_user: Union[Client, User] = Depends(get_current_user),
 ):
-    await validate_master_or_admin_access(current_user)
-    company_id = _current_company_id(current_user)
+    scope = await resolve_team_administration_scope(db, current_user)
+    company_id = scope.company_id
     _get_team_or_404(db, company_id, team_id)
 
-    user = db.query(User).filter(User.id == user_id, User.team_id == team_id, User.company_id == company_id).first()
+    user = db.query(User).filter(
+        User.id == user_id,
+        User.team_id == team_id,
+        User.company_id == company_id,
+        User.client_id == scope.owner_client_id,
+    ).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado nesta equipe")
 
     try:
         user.team_id = None
+        user.auth_token_version = int(user.auth_token_version or 0) + 1
         db.commit()
         logger.info("Usuário %s removido da equipe por %s", user.email, current_user.email)
         return {"message": f"Usuário {user.name} removido da equipe com sucesso"}
