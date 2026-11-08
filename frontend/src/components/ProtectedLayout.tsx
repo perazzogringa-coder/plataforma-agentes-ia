@@ -404,9 +404,12 @@ const ProtectedLayout: React.FC = () => {
           <Outlet />
         </main>
         <MobileNav
+          activeCompanyId={companyId}
+          companies={userCompanies}
           menuItems={mobileMenuItems}
           moreMenuItems={mobileMoreMenuItems}
           onLogout={() => setShowLogoutModal(true)}
+          onSelectCompany={handleSelectCompany}
         />
       </div>
 

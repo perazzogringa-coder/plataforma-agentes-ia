@@ -116,6 +116,47 @@
   text-transform: uppercase;
 }
 
+.companySection {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color, #f0f0f0);
+}
+
+.companyButton {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-secondary, #71717a);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.companyButtonActive,
+.companyButton:hover {
+  background: var(--active-bg, #f1f5f9);
+  color: var(--text-primary, #020323);
+}
+
+.companyButton span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.companyCheck {
+  height: 18px;
+  width: 18px;
+  flex: 0 0 auto;
+}
+
 .menuLink {
   display: flex;
   align-items: center;
