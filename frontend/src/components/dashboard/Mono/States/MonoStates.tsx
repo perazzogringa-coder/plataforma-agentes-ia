@@ -7,11 +7,10 @@ interface FullPageProps {
 
 export const MonoLoading: React.FC<FullPageProps> = ({ isDark }) => (
   <div className={`mono-dashboard ${isDark ? 'mono-dashboard--dark' : ''}`}>
-      <div className="mono-loading-page">
-        <div className="mono-loading-box">
-          <Loader2 aria-label="Carregando métricas" className="mono-spinner-svg" role="status" />
-          <p>Carregando métricas...</p>
-        </div>
+    <div className="mono-loading-page">
+      <div className="mono-loading-box">
+        <Loader2 aria-label="Carregando métricas" className="mono-spinner-svg" role="status" />
+        <p>Carregando métricas...</p>
       </div>
     </div>
   </div>
@@ -24,19 +23,17 @@ interface ErrorPageProps extends FullPageProps {
 
 export const MonoError: React.FC<ErrorPageProps> = ({ error, isDark, onRefresh }) => (
   <div className={`mono-dashboard ${isDark ? 'mono-dashboard--dark' : ''}`}>
-      <div className="mono-error-page">
-        <div className="mono-error-box">
-          <h1 className="mono-title">Erro ao carregar dados</h1>
-          <div className="mono-alert mono-alert--danger mono-error-alert" role="alert">
-            <AlertCircle aria-hidden="true" className="mono-alert-icon" />
-            <span>{error}</span>
-          </div>
-          <button className="mono-btn mono-btn--primary" onClick={onRefresh} type="button">
-            <RefreshCw />
-            Tentar novamente
-          </button>
-          </div>
+    <div className="mono-error-page">
+      <div className="mono-error-box">
+        <h1 className="mono-title">Erro ao carregar dados</h1>
+        <div className="mono-alert mono-alert--danger mono-error-alert" role="alert">
+          <AlertCircle aria-hidden="true" className="mono-alert-icon" />
+          <span>{error}</span>
         </div>
+        <button className="mono-btn mono-btn--primary" onClick={onRefresh} type="button">
+          <RefreshCw />
+          Tentar novamente
+        </button>
       </div>
     </div>
   </div>
