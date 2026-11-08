@@ -526,6 +526,11 @@ def _authenticate_login_request(
             "client_id": authenticated.client_id,
             "user_type": authenticated.user_type,
             "user_id": authenticated.account_id,
+            "user_name": (
+                (dict(account.billing_profile or {}).get("full_name") if isinstance(account, Client) else account.name)
+                or account.email
+            ),
+            "user_role": "master" if authenticated.user_type == "master" else account.role,
             "team": permissions_payload["team"],
             "sidebar_permissions": permissions_payload["sidebar_permissions"],
             "contact_permissions": permissions_payload["contact_permissions"],

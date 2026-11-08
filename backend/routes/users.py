@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from typing import List, Union
+from dataclasses import dataclass
 from pydantic import BaseModel, EmailStr, validator
 from backend.db import get_db
 from backend.models import User, Client, Company, ClientCompany, Team
@@ -84,15 +85,55 @@ class UserResponse(UserBase):
     class Config:
         from_attribute = True
 
+@dataclass(frozen=True)
+class UserAdministrationScope:
+    company_id: int
+    owner_client_id: int
+    is_master: bool
+
+
 async def validate_master_access(current_user: Union[Client, User]) -> Client:
-    """Valida se o usuário atual é um master e retorna o Client"""
-    if not isinstance(current_user, Client):
-        logger.warning(f"Tentativa de acesso não autorizado por usuário não-master: {current_user.email}")
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Acesso permitido apenas para usuários master"
-        )
-    return current_user
+    """Compatibility guard for legacy password mutation path."""
+    if isinstance(current_user, Client):
+        return current_user
+    raise HTTPException(status_code=403, detail="Acesso permitido apenas para usuários master")
+
+
+async def resolve_user_administration_scope(
+    db: Session,
+    current_user: Union[Client, User],
+    requested_company_id: int | None = None,
+) -> UserAdministrationScope:
+    """Resolve authorization server-side; never trust a browser client_id."""
+    if isinstance(current_user, Client):
+        company_id = int(requested_company_id or current_user.company_id)
+        link = db.query(ClientCompany).filter(
+            ClientCompany.client_id == current_user.id,
+            ClientCompany.company_id == company_id,
+        ).first()
+        if not link:
+            raise HTTPException(status_code=403, detail="Sem permissão para esta empresa")
+        owner = db.query(Client).filter(
+            Client.company_id == company_id,
+            Client.ownership_company_id == company_id,
+            Client.is_active.is_(True),
+        ).first()
+        if not owner:
+            raise HTTPException(status_code=403, detail="Empresa sem proprietário ativo")
+        return UserAdministrationScope(company_id, int(owner.id), True)
+
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Acesso permitido apenas para administradores")
+    if requested_company_id is not None and int(requested_company_id) != int(current_user.company_id):
+        raise HTTPException(status_code=403, detail="Sem permissão para esta empresa")
+    owner = db.query(Client).filter(
+        Client.company_id == current_user.company_id,
+        Client.ownership_company_id == current_user.company_id,
+        Client.is_active.is_(True),
+    ).first()
+    if not owner:
+        raise HTTPException(status_code=403, detail="Empresa sem proprietário ativo")
+    return UserAdministrationScope(int(current_user.company_id), int(owner.id), False)
 
 async def validate_company_access(db: Session, master_id: int, company_id: int):
     """Valida se o master tem acesso à empresa especificada"""
@@ -251,20 +292,15 @@ async def list_users(
     current_user: Union[Client, User] = Depends(get_current_user)
 ):
     """Lista todos os usuários vinculados ao client atual - sem soft delete."""
-    master = await validate_master_access(current_user)
-
-    # Base query
-    query = db.query(User).filter(User.client_id == master.id)
-
-    # Se company_id for especificado, filtrar por empresa
-    if company_id is not None:
-        # Valida acesso à empresa
-        await validate_company_access(db, master.id, company_id)
-        query = query.filter(User.company_id == company_id)
+    scope = await resolve_user_administration_scope(db, current_user, company_id)
+    query = db.query(User).filter(
+        User.client_id == scope.owner_client_id,
+        User.company_id == scope.company_id,
+    )
 
     users = query.all()
 
-    logger.info(f"Master {master.email} listou usuários" + (f" da empresa {company_id}" if company_id else ""))
+    logger.info("Administrador listou usuários da empresa %s", scope.company_id)
     return users
 
 @router.post("/users/", response_model=UserResponse, tags=["users"])
@@ -296,16 +332,18 @@ async def _create_user_with_identity_reservation(
     current_user: Union[Client, User],
 ):
     """Cria um novo usuário vinculado ao client atual"""
-    master = await validate_master_access(current_user)
+    scope = await resolve_user_administration_scope(db, current_user, user_data.company_id)
+    if not scope.is_master and user_data.role == "admin":
+        raise HTTPException(status_code=403, detail="Somente a master pode conceder administrador")
 
     # Serializa a criação e mantém a ordem global company -> client.
     normalized_email = await validate_email_available(db, str(user_data.email))
     lock_entities_for_mutation(db, company_ids=[user_data.company_id])
-    lock_entities_for_mutation(db, client_ids=[master.id])
+    lock_entities_for_mutation(db, client_ids=[scope.owner_client_id])
 
     locked_master = (
         db.query(Client)
-        .filter(Client.id == master.id)
+        .filter(Client.id == scope.owner_client_id)
         .with_for_update()
         .first()
     )
@@ -327,7 +365,8 @@ async def _create_user_with_identity_reservation(
         )
 
     # Valida acesso à empresa novamente depois dos locks e do recheck.
-    company = await validate_company_access(db, locked_master.id, user_data.company_id)
+    if int(locked_master.company_id) != int(scope.company_id):
+        raise HTTPException(status_code=403, detail="Empresa sem proprietário autorizado")
     await validate_team_access(db, user_data.company_id, user_data.team_id)
 
     # Cria o usuário
@@ -371,11 +410,12 @@ async def get_user(
     current_user: Union[Client, User] = Depends(get_current_user)
 ):
     """Obtém detalhes de um usuário específico"""
-    master = await validate_master_access(current_user)
+    scope = await resolve_user_administration_scope(db, current_user)
 
     user = db.query(User).filter(
         User.id == user_id,
-        User.client_id == master.id,
+        User.client_id == scope.owner_client_id,
+        User.company_id == scope.company_id,
         #User.deleted_at.is_(None)
     ).first()
 
@@ -385,7 +425,7 @@ async def get_user(
             detail="Usuário não encontrado"
         )
 
-    logger.info(f"Master {master.email} consultou usuário {user.email}")
+    logger.info("Administrador consultou usuário ID=%s", user.id)
     return user
 
 @router.patch("/users/{user_id}", response_model=UserResponse, tags=["users"])
@@ -396,11 +436,12 @@ async def update_user(
     current_user: Union[Client, User] = Depends(get_current_user)
 ):
     """Atualiza dados de um usuário"""
-    master = await validate_master_access(current_user)
+    scope = await resolve_user_administration_scope(db, current_user)
 
     user = db.query(User).filter(
         User.id == user_id,
-        User.client_id == master.id,
+        User.client_id == scope.owner_client_id,
+        User.company_id == scope.company_id,
         #User.deleted_at.is_(None)
     ).first()
 
@@ -414,6 +455,9 @@ async def update_user(
         # Atualiza os campos
         update_data = user_data.dict(exclude_unset=True)
 
+        if not scope.is_master and ("role" in update_data or int(user.id) == int(current_user.id)):
+            raise HTTPException(status_code=403, detail="Administrador não pode alterar papéis nem o próprio usuário")
+
         if "email" in update_data:
             update_data["email"] = await validate_email_available(
                 db,
@@ -426,11 +470,12 @@ async def update_user(
 
         for field, value in update_data.items():
             setattr(user, field, value)
+        user.auth_token_version = int(user.auth_token_version or 0) + 1
 
         db.commit()
         db.refresh(user)
 
-        logger.info(f"Master {master.email} atualizou usuário {user.email}")
+        logger.info("Administrador atualizou usuário ID=%s", user.id)
         return user
     except HTTPException:
         db.rollback()
@@ -452,11 +497,12 @@ async def delete_user(
     """
     Deleta definitivamente um usuário do banco (sem soft delete).
     """
-    master = await validate_master_access(current_user)
+    scope = await resolve_user_administration_scope(db, current_user)
 
     user = db.query(User).filter(
         User.id == user_id,
-        User.client_id == master.id
+        User.client_id == scope.owner_client_id,
+        User.company_id == scope.company_id,
         # User.deleted_at.is_(None)  <-- Remover isso
     ).first()
 
@@ -466,12 +512,14 @@ async def delete_user(
             detail="Usuário não encontrado"
         )
 
+    if not scope.is_master and (int(user.id) == int(current_user.id) or user.role == "admin"):
+        raise HTTPException(status_code=403, detail="Administrador não pode excluir este usuário")
     try:
         # Delete real: remove o objeto do banco
         db.delete(user)
         db.commit()
 
-        logger.info(f"Master {master.email} deletou usuário {user.email}")
+        logger.info("Administrador excluiu usuário ID=%s", user.id)
         return None
     except Exception as e:
         logger.error(f"Erro ao deletar usuário: {str(e)}")
@@ -513,8 +561,8 @@ async def _change_user_password_with_identity_reservation(
     current_user: Union[Client, User],
     reservation: IdentityOperationReservation,
 ):
-    """Altera a senha de um usuário"""
-    master = await validate_master_access(current_user)
+    """Altera senha somente dentro do escopo administrativo efetivo."""
+    scope = await resolve_user_administration_scope(db, current_user)
 
     if "new_password" not in password_data or "confirm_password" not in password_data:
         raise HTTPException(
@@ -530,7 +578,8 @@ async def _change_user_password_with_identity_reservation(
 
     user = db.query(User).filter(
         User.id == user_id,
-        User.client_id == master.id,
+        User.client_id == scope.owner_client_id,
+        User.company_id == scope.company_id,
         #User.deleted_at.is_(None)
     ).first()
 
@@ -539,8 +588,13 @@ async def _change_user_password_with_identity_reservation(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Usuário não encontrado"
         )
+    if not scope.is_master and (int(user.id) == int(current_user.id) or user.role == "admin"):
+        raise HTTPException(status_code=403, detail="Administrador não pode redefinir esta senha")
 
-    master_id = int(master.id)
+    master_id = scope.owner_client_id
+    master = db.query(Client).filter(Client.id == master_id).first()
+    if not master:
+        raise HTTPException(status_code=403, detail="Empresa sem proprietário autorizado")
     master_email = str(master.email)
     user_email = normalize_account_email(user.email)
     company_id = int(user.company_id)
@@ -567,6 +621,7 @@ async def _change_user_password_with_identity_reservation(
 
             _current_master, current_user, _current_company = state
             current_user.password = hash_password(password_data["new_password"])
+            current_user.auth_token_version = int(current_user.auth_token_version or 0) + 1
             db.commit()
             db.refresh(current_user)
             logger.info(

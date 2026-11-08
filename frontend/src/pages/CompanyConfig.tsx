@@ -35,6 +35,7 @@ import api, {
 } from '../services/api';
 import TeamsManagement from '../components/TeamsManagement.tsx';
 import { useTheme } from '../contexts/ThemeContext.tsx';
+import { useUserPermissions } from '../hooks/useUserPermissions.ts';
 import {
   AgentiveAlert,
   AgentiveConfirmModal,
@@ -303,6 +304,8 @@ const DropdownItem: React.FC<DropdownItemProps> = ({
 
 const CompanyConfig: React.FC = () => {
   const { isDark } = useTheme();
+  const { isMaster } = useUserPermissions();
+  const canManageOrganization = isMaster || localStorage.getItem('user_role') === 'admin';
 
   const [currentTab, setCurrentTab] = useState<CompanyTab>('users');
   const [nameCompany, setNameCompany] = useState('');
@@ -472,12 +475,20 @@ const CompanyConfig: React.FC = () => {
   };
 
   const openCreateUserDialog = () => {
+    if (!canManageOrganization) {
+      setError('Você não tem permissão para administrar usuários desta empresa.');
+      return;
+    }
     resetUserForm();
     setDialogMode('create');
     setShowUserDialog(true);
   };
 
   const openEditUserDialog = (user: User) => {
+    if (!canManageOrganization) {
+      setError('Você não tem permissão para administrar usuários desta empresa.');
+      return;
+    }
     setSelectedUser(user);
     setUserForm({
       name: user.name,
@@ -492,6 +503,10 @@ const CompanyConfig: React.FC = () => {
   };
 
   const openPasswordDialog = (user: User) => {
+    if (!canManageOrganization) {
+      setError('Você não tem permissão para administrar usuários desta empresa.');
+      return;
+    }
     setSelectedUser(user);
     setUserForm({
       ...emptyUserForm,
@@ -527,6 +542,10 @@ const CompanyConfig: React.FC = () => {
 
     try {
       if (dialogMode === 'create') {
+        if (!isMaster && userForm.role === 'admin') {
+          setError('Somente a conta master pode conceder Administrador da Empresa.');
+          return;
+        }
         const payload: UserCreate = {
           name: userForm.name.trim(),
           email: userForm.email.trim(),
@@ -541,6 +560,10 @@ const CompanyConfig: React.FC = () => {
       }
 
       if (dialogMode === 'edit' && selectedUser) {
+        if (!isMaster && userForm.role !== selectedUser.role) {
+          setError('Somente a conta master pode alterar a função de um usuário.');
+          return;
+        }
         const payload: UserUpdate = {
           name: userForm.name.trim(),
           email: userForm.email.trim(),
@@ -676,7 +699,7 @@ const CompanyConfig: React.FC = () => {
             </div>
 
             <div className="flex flex-col gap-2 sm:flex-row xl:justify-end">
-              {isCompanyEditing ? (
+              {canManageOrganization && (isCompanyEditing ? (
                 <>
                   <button
                     type="button"
@@ -716,7 +739,7 @@ const CompanyConfig: React.FC = () => {
                     Novo usuário
                   </button>
                 </>
-              )}
+              ))}
             </div>
           </div>
 
@@ -897,14 +920,14 @@ const CompanyConfig: React.FC = () => {
                   </select>
                   <ChevronDown className={`pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 ${isDark ? 'text-white/45' : 'text-brand/45'}`} />
                 </div>
-                <button
+                {canManageOrganization && <button
                   type="button"
                   onClick={openCreateUserDialog}
                   className={agentivePrimaryButtonClass('sm:whitespace-nowrap')}
                 >
                   <Plus className="h-4 w-4" />
                   Novo usuário
-                </button>
+                </button>}
               </div>
             </div>
 
@@ -914,7 +937,7 @@ const CompanyConfig: React.FC = () => {
                   icon={Users}
                   title={users.length === 0 ? 'Nenhum usuário cadastrado' : 'Nenhum usuário encontrado'}
                   description={users.length === 0 ? 'Crie o primeiro acesso para organizar responsabilidades e permissões.' : 'Ajuste os filtros para ver outros usuários.'}
-                  action={users.length === 0 ? (
+                  action={canManageOrganization && users.length === 0 ? (
                     <button type="button" onClick={openCreateUserDialog} className={agentiveSecondaryButtonClass(isDark)}>
                       <Plus className="h-4 w-4" />
                       Criar usuário
@@ -975,7 +998,7 @@ const CompanyConfig: React.FC = () => {
                                 {user.is_active ? 'Ativo' : 'Inativo'}
                               </span>
                             </td>
-                            <td className="px-5 py-4 text-right">
+                            {canManageOrganization && <td className="px-5 py-4 text-right">
                               <DropdownMenu
                                 trigger={(
                                   <button
@@ -998,7 +1021,7 @@ const CompanyConfig: React.FC = () => {
                                   Excluir
                                 </DropdownItem>
                               </DropdownMenu>
-                            </td>
+                            </td>}
                           </tr>
                         );
                       })}
@@ -1022,7 +1045,7 @@ const CompanyConfig: React.FC = () => {
                               <p className={`truncate text-xs ${isDark ? 'text-white/45' : 'text-brand/45'}`}>{user.email}</p>
                             </div>
                           </div>
-                          <DropdownMenu
+                          {canManageOrganization && <DropdownMenu
                             trigger={(
                               <button
                                 type="button"
@@ -1043,7 +1066,7 @@ const CompanyConfig: React.FC = () => {
                             <DropdownItem icon={<Trash2 className="h-4 w-4" />} destructive onClick={() => setUserToDelete(user)}>
                               Excluir
                             </DropdownItem>
-                          </DropdownMenu>
+                          </DropdownMenu>}
                         </div>
                         <div className="mt-3 flex flex-wrap gap-2">
                           <span className={agentivePillClass(isDark, false)}>{getRoleLabel(user.role)}</span>
@@ -1066,8 +1089,11 @@ const CompanyConfig: React.FC = () => {
           </section>
         )}
 
-        {currentTab === 'teams' && (
+        {currentTab === 'teams' && canManageOrganization && (
           <TeamsManagement onTeamsChanged={refreshOrganizationData} />
+        )}
+        {currentTab === 'teams' && !canManageOrganization && (
+          <AgentiveAlert variant="error" title="Acesso restrito">Somente administradores da empresa podem administrar equipes.</AgentiveAlert>
         )}
       </div>
 
@@ -1122,9 +1148,14 @@ const CompanyConfig: React.FC = () => {
                 label="Função"
                 value={userForm.role}
                 onChange={event => setUserForm(prev => ({ ...prev, role: event.target.value }))}
+                disabled={!isMaster}
                 required
               >
                 <option value="staff">Funcionário</option>
+                <option value="manager">Gestor</option>
+                {(isMaster || userForm.role === 'admin') && (
+                  <option value="admin">Administrador da Empresa</option>
+                )}
               </SelectField>
               <SelectField
                 label="Equipe"

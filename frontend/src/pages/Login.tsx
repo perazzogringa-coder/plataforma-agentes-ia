@@ -48,6 +48,8 @@ const Login = () => {
         clientId,
         userType,
         userId,
+        userName,
+        userRole,
         userTeam,
         team,
         sidebarPermissions,
@@ -56,6 +58,8 @@ const Login = () => {
 
       if (userType) localStorage.setItem('user_type', userType);
       if (userId) localStorage.setItem('user_id', userId.toString());
+      if (userName) localStorage.setItem('user_name', userName);
+      if (userRole) localStorage.setItem('user_role', userRole);
       if (clientId) localStorage.setItem('client_id', clientId.toString());
       if (companyId) {
         const id = companyId.toString();
@@ -96,6 +100,8 @@ const Login = () => {
       localStorage.removeItem('sidebar_permissions');
       localStorage.removeItem('contact_permissions');
       localStorage.removeItem('user_id');
+      localStorage.removeItem('user_name');
+      localStorage.removeItem('user_role');
       localStorage.removeItem('client_id');
       localStorage.removeItem('master_client_id');
       localStorage.removeItem('company_id');

@@ -1,7 +1,6 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import flowbiteReact from 'flowbite-react/plugin/vite';
 import viteTsconfigPaths from 'vite-tsconfig-paths';
 import path from 'path';
 
@@ -36,7 +35,7 @@ export default defineConfig(({ mode }) => {
     const devPort = Number(env.VITE_DEV_PORT || process.env.VITE_DEV_PORT || 3004);
 
     return {
-        plugins: [react(), flowbiteReact(), tailwindcss(), viteTsconfigPaths()],
+        plugins: [react(), tailwindcss(), viteTsconfigPaths()],
         resolve: {
             alias: {
                 '@': path.resolve(__dirname, './src'),

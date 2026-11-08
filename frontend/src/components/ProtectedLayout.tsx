@@ -228,6 +228,8 @@ const ProtectedLayout: React.FC = () => {
   const workspaceName = companyName || 'Minha Empresa';
   const workspaceInitials = getInitials(workspaceName);
   const userEmail = localStorage.getItem('user_email') || 'usuario@exemplo.com';
+  const userName = localStorage.getItem('user_name') || userEmail;
+  const userRole = localStorage.getItem('user_role') || (permissions.isMaster ? 'master' : 'staff');
   const activeCompany = companyId
     ? userCompanies.find((company) => company.company_id.toString() === companyId)
     : undefined;
@@ -330,7 +332,7 @@ const ProtectedLayout: React.FC = () => {
     <div className="agentive-app-shell flex flex-col">
 
       {/* DESKTOP NAVIGATION */}
-      <div className="flex flex-1 relative hidden sm:flex">
+      <div className="relative hidden flex-1 lg:flex">
       <Sidebar
         isCollapsed={!isDrawerOpen}
         navigationModule={navigationModule}
@@ -351,6 +353,8 @@ const ProtectedLayout: React.FC = () => {
         handleSelectCompany={handleSelectCompany}
         toggleTheme={toggleTheme}
         userEmail={userEmail}
+            userName={userName}
+            userRole={userRole}
         workspaceInitials={workspaceInitials}
         workspaceName={workspaceName}
         railItems={railItems}
@@ -359,7 +363,7 @@ const ProtectedLayout: React.FC = () => {
         {/* 3. MAIN CONTENT AREA */}
         <main
           className={`
-            agentive-app-main min-h-screen transition-all duration-200
+            agentive-app-main min-h-screen min-w-0 max-w-full transition-all duration-200
             p-0
           `}
           style={{ marginLeft: `${sidebarWidth}px`, width: `calc(100% - ${sidebarWidth}px)` }}
@@ -370,8 +374,8 @@ const ProtectedLayout: React.FC = () => {
       </div>
 
       {/* MOBILE NAVIGATION */}
-      <div className="sm:hidden flex flex-col min-h-screen">
-        <main className="agentive-mobile-main flex-1 overflow-y-auto pb-[calc(7rem+env(safe-area-inset-bottom))]">
+      <div className="flex min-h-screen flex-col lg:hidden">
+        <main className="agentive-mobile-main min-w-0 flex-1 overflow-x-hidden overflow-y-auto pb-[calc(7rem+env(safe-area-inset-bottom))]">
           <Outlet />
         </main>
         <MobileNav
