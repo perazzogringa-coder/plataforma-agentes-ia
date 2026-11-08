@@ -25,6 +25,8 @@ interface WorkspaceAccountNavProps {
   onSelectCompany: (id: number) => void;
   onThemeToggle: () => void;
   userEmail: string;
+  userName: string;
+  userRole: string;
   workspaceInitials: string;
   workspaceName: string;
   activeCompanyId: string | null;
@@ -44,6 +46,8 @@ const WorkspaceAccountNav: React.FC<WorkspaceAccountNavProps> = ({
   onSelectCompany,
   onThemeToggle,
   userEmail,
+  userName,
+  userRole,
   workspaceInitials,
   workspaceName,
   activeCompanyId,
@@ -62,11 +66,10 @@ const WorkspaceAccountNav: React.FC<WorkspaceAccountNavProps> = ({
             </AvatarFallback>
           </Avatar>
           <div className={styles.userInfo}>
-            <p className={styles.userName}>
-              {workspaceName}
-            </p>
+            <p className={styles.workspaceName}>Empresa: {workspaceName}</p>
+            <p className={styles.userName}>{userName}</p>
             <p className={styles.userEmail}>
-              {userEmail}
+              {userEmail} · {userRole === 'admin' ? 'Administrador da Empresa' : userRole === 'master' ? 'Master' : userRole === 'manager' ? 'Gestor' : 'Funcionário'}
             </p>
           </div>
           <MoreVertical className={styles.moreIcon} />

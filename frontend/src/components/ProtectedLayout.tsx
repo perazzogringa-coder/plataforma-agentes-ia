@@ -228,6 +228,8 @@ const ProtectedLayout: React.FC = () => {
   const workspaceName = companyName || 'Minha Empresa';
   const workspaceInitials = getInitials(workspaceName);
   const userEmail = localStorage.getItem('user_email') || 'usuario@exemplo.com';
+  const userName = localStorage.getItem('user_name') || userEmail;
+  const userRole = localStorage.getItem('user_role') || (permissions.isMaster ? 'master' : 'staff');
   const activeCompany = companyId
     ? userCompanies.find((company) => company.company_id.toString() === companyId)
     : undefined;
@@ -351,6 +353,8 @@ const ProtectedLayout: React.FC = () => {
         handleSelectCompany={handleSelectCompany}
         toggleTheme={toggleTheme}
         userEmail={userEmail}
+            userName={userName}
+            userRole={userRole}
         workspaceInitials={workspaceInitials}
         workspaceName={workspaceName}
         railItems={railItems}

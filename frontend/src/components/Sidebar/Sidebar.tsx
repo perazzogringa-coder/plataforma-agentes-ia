@@ -123,6 +123,8 @@ interface SidebarProps {
   handleSelectCompany: (id: number) => void;
   toggleTheme: () => void;
   userEmail: string;
+  userName: string;
+  userRole: string;
   workspaceInitials: string;
   workspaceName: string;
   railItems: {
@@ -152,6 +154,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   handleSelectCompany,
   toggleTheme,
   userEmail,
+  userName,
+  userRole,
   workspaceInitials,
   workspaceName,
   railItems,
@@ -338,6 +342,8 @@ const Sidebar: React.FC<SidebarProps> = ({
             onSelectCompany={handleSelectCompany}
             onThemeToggle={toggleTheme}
             userEmail={userEmail}
+            userName={userName}
+            userRole={userRole}
             workspaceInitials={workspaceInitials}
             workspaceName={workspaceName}
           />
