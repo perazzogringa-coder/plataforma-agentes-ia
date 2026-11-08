@@ -65,6 +65,7 @@ import {
 import { useUserPermissions } from '../hooks/useUserPermissions.ts';
 import { filterMenusByPermissions, type MenuItem, type SubItem } from '../services/permissionService.ts';
 import {
+  MODULE_META,
   SIDEBAR_MODULE_MENUS,
   resolveActiveModule,
   type ModuleKey,
@@ -296,6 +297,30 @@ const ProtectedLayout: React.FC = () => {
     ...item,
     isActive: isMobilePathActive(item.path)
   }));
+  const mobileMoreMenuItems = useMemo(() => {
+    const shortcutPaths = new Set(mobileMenuItems.map((item) => item.path));
+    const items: Array<{ path: string; icon: LucideIcon; label: string; section: string; isActive: boolean }> = [];
+
+    const collectItems = (entries: Array<MenuItem | SubItem>, section: string, fallbackIcon?: LucideIcon) => {
+      entries.forEach((entry) => {
+        const icon = entry.icon || fallbackIcon || LayoutDashboard;
+        if (entry.subItems?.length) {
+          collectItems(entry.subItems, section, icon);
+          return;
+        }
+        if (!shortcutPaths.has(entry.path) && !items.some((item) => item.path === entry.path)) {
+          items.push({ path: entry.path, icon, label: entry.label, section, isActive: isMobilePathActive(entry.path) });
+        }
+      });
+    };
+
+    (Object.keys(sidebarModuleMenus) as ModuleKey[]).forEach((moduleKey) => {
+      if (moduleKey === 'clientes' && isManagedCustomerWorkspace) return;
+      collectItems(sidebarModuleMenus[moduleKey], MODULE_META[moduleKey].label);
+    });
+
+    return items;
+  }, [isManagedCustomerWorkspace, location.pathname, mobileMenuItems, sidebarModuleMenus]);
   const isDrawerPathActive = (path: string, peerPaths: string[] = []) => {
     if (path === '/dashboard') return location.pathname === path;
     if (path === '/company') return location.pathname === '/company' || location.pathname === '/clinic';
@@ -380,6 +405,7 @@ const ProtectedLayout: React.FC = () => {
         </main>
         <MobileNav
           menuItems={mobileMenuItems}
+          moreMenuItems={mobileMoreMenuItems}
           onLogout={() => setShowLogoutModal(true)}
         />
       </div>
