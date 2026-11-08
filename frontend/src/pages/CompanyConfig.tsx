@@ -35,6 +35,7 @@ import api, {
 } from '../services/api';
 import TeamsManagement from '../components/TeamsManagement.tsx';
 import { useTheme } from '../contexts/ThemeContext.tsx';
+import { useUserPermissions } from '../hooks/useUserPermissions.ts';
 import {
   AgentiveAlert,
   AgentiveConfirmModal,
@@ -303,6 +304,7 @@ const DropdownItem: React.FC<DropdownItemProps> = ({
 
 const CompanyConfig: React.FC = () => {
   const { isDark } = useTheme();
+  const { isMaster } = useUserPermissions();
 
   const [currentTab, setCurrentTab] = useState<CompanyTab>('users');
   const [nameCompany, setNameCompany] = useState('');
@@ -527,6 +529,10 @@ const CompanyConfig: React.FC = () => {
 
     try {
       if (dialogMode === 'create') {
+        if (!isMaster && userForm.role === 'admin') {
+          setError('Somente a conta master pode conceder Administrador da Empresa.');
+          return;
+        }
         const payload: UserCreate = {
           name: userForm.name.trim(),
           email: userForm.email.trim(),
@@ -541,6 +547,10 @@ const CompanyConfig: React.FC = () => {
       }
 
       if (dialogMode === 'edit' && selectedUser) {
+        if (!isMaster && userForm.role !== selectedUser.role) {
+          setError('Somente a conta master pode alterar a função de um usuário.');
+          return;
+        }
         const payload: UserUpdate = {
           name: userForm.name.trim(),
           email: userForm.email.trim(),
@@ -1122,9 +1132,14 @@ const CompanyConfig: React.FC = () => {
                 label="Função"
                 value={userForm.role}
                 onChange={event => setUserForm(prev => ({ ...prev, role: event.target.value }))}
+                disabled={!isMaster}
                 required
               >
                 <option value="staff">Funcionário</option>
+                <option value="manager">Gestor</option>
+                {(isMaster || userForm.role === 'admin') && (
+                  <option value="admin">Administrador da Empresa</option>
+                )}
               </SelectField>
               <SelectField
                 label="Equipe"
