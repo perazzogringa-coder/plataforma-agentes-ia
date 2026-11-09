@@ -97,7 +97,7 @@ def test_authorized_master_reads_selected_workspace_owner_messages(monkeypatch):
     monkeypatch.setattr(chat_optimized, "verify_company_access", authorized)
     result = asyncio.run(
         chat_optimized.get_paged_messages(
-            contact_phone="5511999999999",
+            contact_phone="5500000000000",
             company_id=2,
             user=master,
             db=db,
@@ -109,7 +109,7 @@ def test_authorized_master_reads_selected_workspace_owner_messages(monkeypatch):
     values = criterion_values(message_query)
     assert values["messages.client_id"] == 202
     assert values["messages.company_id"] == 2
-    assert values["messages.contact_phone"] == "5511999999999"
+    assert values["messages.contact_phone"] == "5500000000000"
 
 
 def test_same_phone_in_another_company_is_not_included(monkeypatch):
@@ -122,7 +122,7 @@ def test_same_phone_in_another_company_is_not_included(monkeypatch):
     monkeypatch.setattr(chat_optimized, "verify_company_access", authorized)
     asyncio.run(
         chat_optimized.get_paged_messages(
-            contact_phone="5511999999999",
+            contact_phone="5500000000000",
             company_id=2,
             user=master,
             db=db,
@@ -145,7 +145,7 @@ def test_legacy_history_keeps_common_account_on_its_workspace_owner(monkeypatch)
 
     monkeypatch.setattr(webhook, "ensure_user_can_access_company", authorize)
     result = webhook.get_message_history(
-        contact_phone="5511999999999",
+        contact_phone="5500000000000",
         user=workspace_master,
         db=db,
     )
@@ -168,7 +168,7 @@ def test_unauthorized_master_cannot_read_selected_workspace(monkeypatch):
     monkeypatch.setattr(chat_optimized, "verify_company_access", denied)
     result = asyncio.run(
         chat_optimized.get_paged_messages(
-            contact_phone="5511999999999",
+            contact_phone="5500000000000",
             company_id=2,
             user=master,
             db=db,
