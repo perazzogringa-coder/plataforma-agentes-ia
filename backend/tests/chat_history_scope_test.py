@@ -12,7 +12,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:////tmp/vanessa-chat-history-scope
 
 from backend.auth import resolve_company_owner_client_id  # noqa: E402
 from backend.models import Client, Contact, Message  # noqa: E402
-from backend.routes import chat_optimized, webhook  # noqa: E402
+from backend.routes import chat_optimized  # noqa: E402
 
 
 class Query:
@@ -98,6 +98,7 @@ def test_authorized_master_reads_selected_workspace_owner_messages(monkeypatch):
     result = asyncio.run(
         chat_optimized.get_paged_messages(
             contact_phone="5500000000000",
+            limit=30,
             company_id=2,
             user=master,
             db=db,
@@ -123,6 +124,7 @@ def test_same_phone_in_another_company_is_not_included(monkeypatch):
     asyncio.run(
         chat_optimized.get_paged_messages(
             contact_phone="5500000000000",
+            limit=30,
             company_id=2,
             user=master,
             db=db,
@@ -135,23 +137,25 @@ def test_same_phone_in_another_company_is_not_included(monkeypatch):
     assert values["messages.client_id"] == 202
 
 
-def test_legacy_history_keeps_common_account_on_its_workspace_owner(monkeypatch):
+def test_workspace_account_reads_its_own_workspace_messages(monkeypatch):
     db = FakeDB(owner(202, 2))
     workspace_master = SimpleNamespace(id=202, company_id=2, email="vanessa@example.test")
-    authorized_companies = []
 
-    def authorize(user, company_id, session):
-        authorized_companies.append((user.id, company_id, session))
+    async def authorized(*_args, **_kwargs):
+        return True
 
-    monkeypatch.setattr(webhook, "ensure_user_can_access_company", authorize)
-    result = webhook.get_message_history(
-        contact_phone="5500000000000",
-        user=workspace_master,
-        db=db,
+    monkeypatch.setattr(chat_optimized, "verify_company_access", authorized)
+    result = asyncio.run(
+        chat_optimized.get_paged_messages(
+            contact_phone="5500000000000",
+            limit=30,
+            company_id=2,
+            user=workspace_master,
+            db=db,
+        )
     )
 
-    assert result == {"messages": []}
-    assert authorized_companies == [(202, 2, db)]
+    assert result["messages"] == []
     message_query = next(query for model, query in db.queries if model is Message)
     values = criterion_values(message_query)
     assert values["messages.client_id"] == 202
@@ -169,6 +173,7 @@ def test_unauthorized_master_cannot_read_selected_workspace(monkeypatch):
     result = asyncio.run(
         chat_optimized.get_paged_messages(
             contact_phone="5500000000000",
+            limit=30,
             company_id=2,
             user=master,
             db=db,
