@@ -91,10 +91,7 @@ def test_authorized_master_reads_selected_workspace_owner_messages(monkeypatch):
     db = FakeDB(owner(202, 2))
     master = SimpleNamespace(id=101, company_id=1, email="manager@example.test")
 
-    async def authorized(*_args, **_kwargs):
-        return True
-
-    monkeypatch.setattr(chat_optimized, "verify_company_access", authorized)
+    monkeypatch.setattr(chat_optimized, "ensure_user_can_access_company", lambda *_args: None)
     result = asyncio.run(
         chat_optimized.get_paged_messages(
             contact_phone="5500000000000",
@@ -117,10 +114,7 @@ def test_same_phone_in_another_company_is_not_included(monkeypatch):
     db = FakeDB(owner(202, 2))
     master = SimpleNamespace(id=101, company_id=1, email="manager@example.test")
 
-    async def authorized(*_args, **_kwargs):
-        return True
-
-    monkeypatch.setattr(chat_optimized, "verify_company_access", authorized)
+    monkeypatch.setattr(chat_optimized, "ensure_user_can_access_company", lambda *_args: None)
     asyncio.run(
         chat_optimized.get_paged_messages(
             contact_phone="5500000000000",
@@ -141,10 +135,7 @@ def test_workspace_account_reads_its_own_workspace_messages(monkeypatch):
     db = FakeDB(owner(202, 2))
     workspace_master = SimpleNamespace(id=202, company_id=2, email="vanessa@example.test")
 
-    async def authorized(*_args, **_kwargs):
-        return True
-
-    monkeypatch.setattr(chat_optimized, "verify_company_access", authorized)
+    monkeypatch.setattr(chat_optimized, "ensure_user_can_access_company", lambda *_args: None)
     result = asyncio.run(
         chat_optimized.get_paged_messages(
             contact_phone="5500000000000",
@@ -162,23 +153,67 @@ def test_workspace_account_reads_its_own_workspace_messages(monkeypatch):
     assert values["messages.company_id"] == 2
 
 
-def test_unauthorized_master_cannot_read_selected_workspace(monkeypatch):
+def test_master_requires_an_explicit_selected_workspace():
+    db = FakeDB(owner(101, 1))
+    master = owner(101, 1)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            chat_optimized.get_paged_messages(
+                contact_phone="5500000000000",
+                limit=30,
+                company_id=None,
+                user=master,
+                db=db,
+            )
+        )
+
+    assert exc.value.status_code == 400
+    assert not db.queries
+
+
+def test_workspace_account_can_use_its_own_company_when_omitted(monkeypatch):
     db = FakeDB(owner(202, 2))
-    master = SimpleNamespace(id=303, company_id=3, email="outsider@example.test")
+    workspace_user = SimpleNamespace(id=402, company_id=2, email="vanessa.user@example.test")
+    seen_company_ids = []
 
-    async def denied(*_args, **_kwargs):
-        return False
+    def authorized(_user, company_id, _db):
+        seen_company_ids.append(company_id)
 
-    monkeypatch.setattr(chat_optimized, "verify_company_access", denied)
-    result = asyncio.run(
+    monkeypatch.setattr(chat_optimized, "ensure_user_can_access_company", authorized)
+    asyncio.run(
         chat_optimized.get_paged_messages(
             contact_phone="5500000000000",
             limit=30,
-            company_id=2,
-            user=master,
+            company_id=None,
+            user=workspace_user,
             db=db,
         )
     )
 
-    assert result == {"error": "Acesso negado à empresa solicitada", "messages": []}
+    assert seen_company_ids == [2]
+    message_query = next(query for model, query in db.queries if model is Message)
+    assert criterion_values(message_query)["messages.company_id"] == 2
+
+
+def test_unauthorized_master_cannot_read_selected_workspace(monkeypatch):
+    db = FakeDB(owner(202, 2))
+    master = SimpleNamespace(id=303, company_id=3, email="outsider@example.test")
+
+    def denied(*_args, **_kwargs):
+        raise HTTPException(status_code=403, detail="Acesso negado para esta empresa")
+
+    monkeypatch.setattr(chat_optimized, "ensure_user_can_access_company", denied)
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            chat_optimized.get_paged_messages(
+                contact_phone="5500000000000",
+                limit=30,
+                company_id=2,
+                user=master,
+                db=db,
+            )
+        )
+
+    assert exc.value.status_code == 403
     assert not db.queries

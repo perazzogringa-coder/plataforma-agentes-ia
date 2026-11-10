@@ -5585,12 +5585,13 @@ export async function getPagedMessages(
     console.log('[DEBUG-API] getPagedMessages called for phone:', contact_phone);
     console.log('[DEBUG-API] company_id from localStorage:', companyId);
 
-    // Construir a query string
-    let url = `/api/chat-optimized/messages/paged?contact_phone=${encodeURIComponent(contact_phone)}&limit=${limit}`;
-
-    if (companyId) {
-      url += `&company_id=${companyId}`;
+    if (!companyId) {
+      throw new Error('company_id não encontrado para carregar o histórico');
     }
+
+    // The active workspace is part of the history identity. Never fall back
+    // to the authenticated principal's default company for a master account.
+    let url = `/api/chat-optimized/messages/paged?contact_phone=${encodeURIComponent(contact_phone)}&limit=${limit}&company_id=${encodeURIComponent(companyId)}`;
 
     console.log('[DEBUG-API] Requesting URL:', url);
 
@@ -6018,6 +6019,16 @@ export class MessageCacheManager {
   private static readonly MAX_CACHE_AGE_MS = 30 * 60 * 1000; // 30 minutos
   private static readonly MAX_CACHE_ENTRIES = 20; // Máximo de conversas em cache
 
+  private getCacheKey(contactPhone: string): string {
+    const companyId = localStorage.getItem('company_id') || localStorage.getItem('clinic_id');
+    if (!companyId) {
+      // Do not reuse entries from an unknown workspace. This key deliberately
+      // differs from the former phone-only cache format.
+      return `${MessageCacheManager.CACHE_PREFIX}unscoped_${contactPhone}`;
+    }
+    return `${MessageCacheManager.CACHE_PREFIX}${companyId}_${contactPhone}`;
+  }
+
   /**
    * Salva mensagens no cache para um contato específico.
    */
@@ -6035,7 +6046,7 @@ export class MessageCacheManager {
     });
 
     try {
-      const cacheKey = `${MessageCacheManager.CACHE_PREFIX}${contactPhone}`;
+      const cacheKey = this.getCacheKey(contactPhone);
 
       // NOVA LÓGICA: Limitar o número de mensagens por contato para evitar exceder a quota
       const MAX_MESSAGES_PER_CONTACT = 200; // Ajuste este valor conforme necessário
@@ -6085,7 +6096,7 @@ export class MessageCacheManager {
   getMessages(contactPhone: string): OptimizedMessage[] | null {
     console.log(`[MessageCache] getMessages chamado para ${contactPhone}`);
     try {
-      const cacheKey = `${MessageCacheManager.CACHE_PREFIX}${contactPhone}`;
+      const cacheKey = this.getCacheKey(contactPhone);
       const cachedData = localStorage.getItem(cacheKey);
       const timestampStr = localStorage.getItem(`${cacheKey}_timestamp`);
 
@@ -6229,7 +6240,7 @@ export class MessageCacheManager {
    */
   removeFromCache(contactPhone: string): void {
     try {
-      const cacheKey = `${MessageCacheManager.CACHE_PREFIX}${contactPhone}`;
+      const cacheKey = this.getCacheKey(contactPhone);
       localStorage.removeItem(cacheKey);
       localStorage.removeItem(`${cacheKey}_timestamp`);
 

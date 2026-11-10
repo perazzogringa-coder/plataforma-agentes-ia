@@ -1,6 +1,6 @@
 
 import logging
-from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from typing import List, Optional, Dict
 from sqlalchemy.orm import Session
 from backend.db import get_db
@@ -12,9 +12,9 @@ from backend.ws_manager import manager
 from backend.auth import (
     WebSocketAuthError,
     authenticate_websocket_access_off_loop,
+    ensure_user_can_access_company,
     revalidate_websocket_access_off_loop,
     resolve_company_owner_client_id,
-    verify_company_access,
 )
 from backend.services.message_metadata import message_metadata_for_response
 
@@ -40,31 +40,33 @@ async def get_paged_messages(
     - limit: quantidade máxima de mensagens a retornar (1-100)
     - before_id: ID da mensagem mais antiga já carregada (para paginação)
     - before_timestamp: timestamp em milissegundos (alternativa ao before_id)
-    - company_id: ID da empresa (opcional, defaults to user.company_id)
+    - company_id: ID da empresa selecionada. Obrigatório para contas master.
     """
 
-    # Determinar qual company_id usar
-    target_company_id = user.company_id
-
-    # Se company_id foi fornecido, verificar permissão
-    if company_id:
-        logger.info(f"[DEBUG] company_id fornecido: {company_id}")
-        # Verifica se o usuário tem acesso a esta empresa
-        has_access = await verify_company_access(str(user.id), company_id, db)
-        if has_access:
-            target_company_id = company_id
-            logger.info(f"[DEBUG] Acesso permitido à empresa {company_id}")
-        else:
-            logger.warning(f"[DEBUG] Acesso negado: User {user.id} tentou acessar mensagens da empresa {company_id}")
-            return {"error": "Acesso negado à empresa solicitada", "messages": []}
+    if company_id is None:
+        if isinstance(user, Client):
+            raise HTTPException(
+                status_code=400,
+                detail="company_id é obrigatório para conta master",
+            )
+        target_company_id = user.company_id
     else:
-        logger.info(f"[DEBUG] Nenhum company_id fornecido, usando padrão: {target_company_id}")
-
-    logger.info(f"[DEBUG] Obtendo mensagens paginadas para {user.email} - phone={contact_phone}, limit={limit}, company_id={target_company_id}")
+        target_company_id = company_id
 
     if not target_company_id:
-        logger.error("[DEBUG] Erro: Usuário sem empresa associada")
-        return {"error": "Usuário sem empresa associada", "messages": []}
+        raise HTTPException(status_code=400, detail="Usuário sem empresa associada.")
+
+    # Always authorize the selected workspace before resolving its owner or
+    # querying messages. A master can access a managed workspace, but never
+    # receives data from its own default company by implication.
+    ensure_user_can_access_company(user, target_company_id, db)
+
+    logger.info(
+        "[DEBUG] Obtendo mensagens para phone=%s, limit=%s, company_id=%s",
+        contact_phone,
+        limit,
+        target_company_id,
+    )
 
     # The selected workspace owns its data.  A master can be associated with a
     # managed workspace, but its own client id must not replace that owner.
