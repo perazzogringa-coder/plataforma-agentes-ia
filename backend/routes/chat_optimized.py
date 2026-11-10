@@ -13,6 +13,7 @@ from backend.auth import (
     WebSocketAuthError,
     authenticate_websocket_access_off_loop,
     revalidate_websocket_access_off_loop,
+    resolve_company_owner_client_id,
     verify_company_access,
 )
 from backend.services.message_metadata import message_metadata_for_response
@@ -65,11 +66,9 @@ async def get_paged_messages(
         logger.error("[DEBUG] Erro: Usuário sem empresa associada")
         return {"error": "Usuário sem empresa associada", "messages": []}
 
-    # Se for usuário não-master, pegar o client_id do master
-    if hasattr(user, 'client_id'):  # Se for um User (não-master)
-        client_id = user.client_id  # Usa o client_id do master
-    else:  # Se for um Client (master)
-        client_id = user.id
+    # The selected workspace owns its data.  A master can be associated with a
+    # managed workspace, but its own client id must not replace that owner.
+    client_id = resolve_company_owner_client_id(db, target_company_id)
 
     logger.info(f"[DEBUG] Buscando mensagens: client_id={client_id}, company_id={target_company_id}, phone={contact_phone}")
 

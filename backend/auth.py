@@ -624,6 +624,27 @@ def ensure_user_can_access_company(user: Union[Client, User], company_id: int, d
     ensure_managed_workspace_access(db, company_id)
 
 
+def resolve_company_owner_client_id(db: Session, company_id: int) -> int:
+    """Return the immutable data owner for a workspace.
+
+    A master may be linked to a managed workspace without owning its data.  The
+    workspace owner's client id must therefore be resolved from the workspace,
+    rather than from the authenticated principal.
+    """
+    owner = (
+        db.query(Client)
+        .filter(
+            Client.company_id == int(company_id),
+            Client.ownership_company_id == int(company_id),
+            Client.is_active.is_(True),
+        )
+        .first()
+    )
+    if not owner:
+        raise HTTPException(status_code=403, detail="Empresa sem proprietário ativo")
+    return int(owner.id)
+
+
 def verify_client_or_bearer_api_key(
     client_id: int,
     company_id: int,

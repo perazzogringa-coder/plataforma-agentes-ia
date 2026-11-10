@@ -11,7 +11,11 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from backend.db import get_db
-from backend.auth import get_current_user
+from backend.auth import (
+    ensure_user_can_access_company,
+    get_current_user,
+    resolve_company_owner_client_id,
+)
 import requests
 from io import BytesIO
 import base64
@@ -1363,11 +1367,8 @@ def get_message_history(contact_phone: str, user=Depends(get_current_user), db: 
     if not user.company_id:
         raise HTTPException(status_code=400, detail="Usuário sem empresa associada.")
 
-    # Se for usuário não-master, pegar o client_id do master
-    if hasattr(user, 'client_id'):  # Se for um User (não-master)
-        client_id = user.client_id  # Usa o client_id do master
-    else:  # Se for um Client (master)
-        client_id = user.id
+    ensure_user_can_access_company(user, user.company_id, db)
+    client_id = resolve_company_owner_client_id(db, user.company_id)
 
     logger.info(f"Buscando mensagens com client_id={client_id}, company_id={user.company_id}")
 
