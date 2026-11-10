@@ -631,18 +631,17 @@ def resolve_company_owner_client_id(db: Session, company_id: int) -> int:
     workspace owner's client id must therefore be resolved from the workspace,
     rather than from the authenticated principal.
     """
-    owner = (
+    owners = (
         db.query(Client)
         .filter(
-            Client.company_id == int(company_id),
             Client.ownership_company_id == int(company_id),
             Client.is_active.is_(True),
         )
-        .first()
+        .all()
     )
-    if not owner:
+    if len(owners) != 1:
         raise HTTPException(status_code=403, detail="Empresa sem proprietário ativo")
-    return int(owner.id)
+    return int(owners[0].id)
 
 
 def verify_client_or_bearer_api_key(
