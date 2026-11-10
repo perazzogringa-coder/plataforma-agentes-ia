@@ -43,12 +43,17 @@ class Query:
 
 
 class FakeDB:
-    def __init__(self, owner):
-        self.owner = owner
+    def __init__(self, owners):
+        if owners is None:
+            self.owners = []
+        elif isinstance(owners, list):
+            self.owners = owners
+        else:
+            self.owners = [owners]
         self.queries = []
 
     def query(self, model):
-        query = Query(first=self.owner if model is Client else None)
+        query = Query(rows=self.owners if model is Client else [])
         self.queries.append((model, query))
         return query
 
@@ -61,12 +66,12 @@ def criterion_values(query):
     }
 
 
-def owner(client_id, company_id):
+def owner(client_id, ownership_company_id, company_id=None):
     return Client(
         id=client_id,
         email=f"owner-{client_id}@example.test",
-        company_id=company_id,
-        ownership_company_id=company_id,
+        company_id=company_id if company_id is not None else ownership_company_id,
+        ownership_company_id=ownership_company_id,
         is_active=True,
     )
 
@@ -76,13 +81,29 @@ def test_owner_resolution_uses_immutable_workspace_ownership():
 
     assert resolve_company_owner_client_id(db, 2) == 202
     values = criterion_values(db.queries[0][1])
-    assert values["clients.company_id"] == 2
     assert values["clients.ownership_company_id"] == 2
+    assert "clients.company_id" not in values
+
+
+def test_owner_resolution_ignores_mutable_workspace_context():
+    db = FakeDB(owner(202, 2, company_id=1))
+
+    assert resolve_company_owner_client_id(db, 2) == 202
+    values = criterion_values(db.queries[0][1])
+    assert values["clients.ownership_company_id"] == 2
+    assert "clients.company_id" not in values
 
 
 def test_owner_resolution_fails_closed_without_active_owner():
     with pytest.raises(HTTPException) as exc:
         resolve_company_owner_client_id(FakeDB(None), 2)
+
+    assert getattr(exc.value, "status_code", None) == 403
+
+
+def test_owner_resolution_fails_closed_with_multiple_active_owners():
+    with pytest.raises(HTTPException) as exc:
+        resolve_company_owner_client_id(FakeDB([owner(202, 2), owner(203, 2)]), 2)
 
     assert getattr(exc.value, "status_code", None) == 403
 
