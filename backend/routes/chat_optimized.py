@@ -174,6 +174,13 @@ async def unified_websocket_endpoint(
     - topics: lista de tópicos separados por vírgula (phones ou "__global__")
     """
     try:
+        requested_topics = [t.strip() for t in topics.split(",") if t.strip()] or ["__global__"]
+        def topics_validator(db, identity):
+            if identity.get("user_type") != "user": return True
+            staff = db.query(User).filter(User.id == int(identity["id"])).first()
+            if not staff or staff.role == "admin": return bool(staff)
+            if any(topic in {"ALL", "__global__"} for topic in requested_topics): return False
+            return all(db.query(Contact).filter(Contact.company_id == company_id, Contact.client_id == int(identity["client_id"]), Contact.phone == topic, Contact.assigned_user_id == staff.id).first() is not None for topic in requested_topics)
         try:
             token = token or websocket.cookies.get("access_token")
             if not token:
@@ -182,6 +189,7 @@ async def unified_websocket_endpoint(
             principal = await authenticate_websocket_access_off_loop(
                 token,
                 company_id,
+                resource_validator=topics_validator,
             )
         except WebSocketAuthError as exc:
             logger.warning(
@@ -224,6 +232,7 @@ async def unified_websocket_endpoint(
                 company_id,
                 expected_user_id=user_id,
                 expected_client_id=client_id,
+                resource_validator=topics_validator,
             )
             return (
                 int(fresh_principal.operational_epoch)
