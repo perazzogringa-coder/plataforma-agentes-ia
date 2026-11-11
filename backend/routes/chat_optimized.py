@@ -17,6 +17,7 @@ from backend.auth import (
     resolve_company_owner_client_id,
 )
 from backend.services.message_metadata import message_metadata_for_response
+from backend.services.chat_access import require_contact_access
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -71,6 +72,7 @@ async def get_paged_messages(
     # The selected workspace owns its data.  A master can be associated with a
     # managed workspace, but its own client id must not replace that owner.
     client_id = resolve_company_owner_client_id(db, target_company_id)
+    require_contact_access(db, user, target_company_id, contact_phone, client_id)
 
     logger.info(f"[DEBUG] Buscando mensagens: client_id={client_id}, company_id={target_company_id}, phone={contact_phone}")
 

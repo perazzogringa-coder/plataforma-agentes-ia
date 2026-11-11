@@ -60,6 +60,7 @@ from backend.services.company_access_control import (
     lock_entities_for_mutation,
 )
 from backend.runtime_settings import CHAT_MEMORY_DIR
+from backend.services.chat_access import require_contact_access
 
 
 logger = logging.getLogger(__name__)
@@ -77,12 +78,16 @@ router = APIRouter()
 
 def _build_dynamic_contact_visibility_filter(db: Session, user: Union[Client, User]) -> str:
     """Retorna filtro SQL de visibilidade de contatos para usuários internos."""
-    if isinstance(user, Client):
+    if isinstance(user, Client) or user.role == "admin":
         return ""
+
+    # Individual assignment is the mandatory boundary; team rules can only
+    # further narrow the list, never broaden it.
+    assignment_filter = f" AND c.assigned_user_id = {int(user.id)}"
 
     team_filter = " AND 1 = 0"
     if not user.team_id:
-        return team_filter
+        return assignment_filter
 
     team_permission = db.query(TeamPermission).filter(
         TeamPermission.team_id == user.team_id,
@@ -91,7 +96,7 @@ def _build_dynamic_contact_visibility_filter(db: Session, user: Union[Client, Us
     ).first()
 
     if not team_permission or not team_permission.filter_criteria:
-        return team_filter
+        return assignment_filter
 
     criteria = team_permission.filter_criteria
     include_outside_crm = bool(criteria.get("include_outside_crm", False))
@@ -126,9 +131,9 @@ def _build_dynamic_contact_visibility_filter(db: Session, user: Union[Client, Us
         """)
 
     if conditions:
-        return f" AND ({' OR '.join(conditions)})"
+        return assignment_filter + f" AND ({' OR '.join(conditions)})"
 
-    return team_filter
+    return assignment_filter
 
 
 def _require_whatsapp_scope(
@@ -710,6 +715,7 @@ def send_text(
       { "phone": "5500000000007", "message": "Olá!" }
     """
     _require_whatsapp_scope(user, client_id, company_id, db)
+    require_contact_access(db, user, company_id, body.phone, client_id)
 
     reply_metadata = normalize_reply_request(body.replyTo)
     provider_reply_to = resolve_waha_reply_to_id(db, company_id, body.phone, body.replyTo)
@@ -1369,6 +1375,7 @@ def get_message_history(contact_phone: str, user=Depends(get_current_user), db: 
 
     ensure_user_can_access_company(user, user.company_id, db)
     client_id = resolve_company_owner_client_id(db, user.company_id)
+    require_contact_access(db, user, user.company_id, contact_phone, client_id)
 
     logger.info(f"Buscando mensagens com client_id={client_id}, company_id={user.company_id}")
 

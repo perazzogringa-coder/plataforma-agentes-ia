@@ -231,9 +231,13 @@ class Contact(Base):
 
     # Nova coluna para indicar se o contato está em modo humano (True) ou modo IA (False)
     human_mode = Column(Boolean, default=False, nullable=False)
+    # Current human owner.  A task is only a work item; this is the ACL source
+    # used by the live chat.
+    assigned_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
 
     client = relationship("Client", back_populates="contacts")
     company = relationship("Company", foreign_keys=[company_id])
+    assigned_user = relationship("User", foreign_keys=[assigned_user_id])
 
     # Relationship to tags via junction table
     contact_tags = relationship("ContactTag", back_populates="contact", cascade="all, delete-orphan")

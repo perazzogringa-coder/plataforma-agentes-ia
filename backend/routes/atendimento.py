@@ -5,6 +5,7 @@ import json
 
 from backend.db import get_db
 from backend.models import Contact
+from backend.services.chat_access import require_contact_access
 from backend.auth import get_current_user
 from backend.ws_manager import manager  # <-- gerenciador de conexões WS, deve ter 'async def broadcast'
 
@@ -23,18 +24,7 @@ async def take_over(
     Exemplo de uso:
       POST /api/atendimento/take_over/550000000015?client_id=6&company_id=1
     """
-    # 1) Busca o contato
-    contact = db.query(Contact).filter(
-        Contact.phone == phone,
-        Contact.company_id == company_id,
-        Contact.client_id == client_id
-    ).first()
-
-    if not contact:
-        raise HTTPException(
-            status_code=404,
-            detail=(f"Contato não encontrado (phone={phone}, company_id={company_id}, client_id={client_id})")
-        )
+    contact = require_contact_access(db, user, company_id, phone, client_id)
 
     # 2) Atualiza 'human_mode' = True no banco
     contact.human_mode = True
@@ -75,21 +65,11 @@ async def release_to_bot(
     Exemplo de uso:
       POST /api/atendimento/release_to_bot/550000000015?client_id=6&company_id=1
     """
-    # 1) Busca o contato
-    contact = db.query(Contact).filter(
-        Contact.phone == phone,
-        Contact.company_id == company_id,
-        Contact.client_id == client_id
-    ).first()
-
-    if not contact:
-        raise HTTPException(
-            status_code=404,
-            detail=(f"Contato não encontrado (phone={phone}, company_id={company_id}, client_id={client_id})")
-        )
+    contact = require_contact_access(db, user, company_id, phone, client_id)
 
     # 2) Atualiza 'human_mode' = False no banco
     contact.human_mode = False
+    contact.assigned_user_id = None
     db.commit()
     db.refresh(contact)
 
