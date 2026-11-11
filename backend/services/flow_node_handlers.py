@@ -2322,6 +2322,14 @@ class HumanHandoffHandler(BaseNodeHandler):
                 }
                 variables["human_handoff"] = result
                 return result
+        if assigned_to is None:
+            result = {
+                "success": False,
+                "stop_branch": True,
+                "error": "human_assignee_required",
+            }
+            variables["human_handoff"] = result
+            return result
 
         lead_phone_value = self._resolve_node_config_value(
             node_data,
@@ -2401,8 +2409,7 @@ class HumanHandoffHandler(BaseNodeHandler):
         pause_bot = pause_bot is not False
         if pause_bot:
             contact.human_mode = True
-        if assigned_to:
-            contact.assigned_user_id = assigned_to
+        contact.assigned_user_id = assigned_to
 
         priority = self._normalize_priority(node_data.get("priority"))
         title_template = str(node_data.get("title") or "Atender lead")

@@ -825,6 +825,7 @@ def send_message_reaction(
     Use reaction="" para remover a reação atual.
     """
     _require_whatsapp_scope(user, client_id, company_id, db)
+    require_contact_access(db, user, company_id, body.phone, client_id)
 
     provider_message_id = resolve_waha_reply_to_id(db, company_id, body.phone, {
         "id": body.messageId,
@@ -876,6 +877,7 @@ def send_image(
     Body: { phone, image, caption?, ... }
     """
     _require_whatsapp_scope(user, client_id, company_id, db)
+    require_contact_access(db, user, company_id, body.phone, client_id)
 
     # Importar o tracker de mensagens
     from backend.integrations.message_tracker import message_tracker
@@ -1027,6 +1029,7 @@ def send_audio(
     Envia áudio (URL/base64) usando WAHA.
     """
     _require_whatsapp_scope(user, client_id, company_id, db)
+    require_contact_access(db, user, company_id, body.phone, client_id)
     import base64
 
     # Extrair bytes do áudio (base64 ou URL)
@@ -1254,6 +1257,7 @@ def send_video(
     Body: { phone, video, caption?, viewOnce?, delayMessage?, delayTyping?, asyncUpload? }
     """
     _require_whatsapp_scope(user, client_id, company_id, db)
+    require_contact_access(db, user, company_id, body.phone, client_id)
 
     logger.info(f"Recebido requisição para enviar vídeo. client_id={client_id}, company_id={company_id}")
 
@@ -3465,6 +3469,7 @@ def mark_contact_as_read(
     """
     try:
         _require_whatsapp_scope(user, client_id, company_id, db)
+        require_contact_access(db, user, company_id, phone, client_id)
         # Atualiza a tabela contacts
         result = db.execute(
             text("""
