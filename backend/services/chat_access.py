@@ -29,8 +29,10 @@ def resolve_handoff_assignee(db, company_id: int, requested_user_id=None):
             return assignee.id
         raise ValueError("Assigned user not found for company")
     company = db.query(Company).filter(Company.id == company_id).first()
-    if company and (company.name or "").strip().casefold() == "vanessa lima":
-        kethelyn = db.query(User).filter(User.company_id == company_id, User.is_active.is_(True), User.name.ilike("Kethelyn")).first()
-        if kethelyn:
-            return kethelyn.id
+    # The company record, not its display name, owns this temporary policy.
+    configured_id = ((company.settings or {}).get("chat_handoff_default_user_id") if company else None)
+    if configured_id:
+        assignee = db.query(User).filter(User.id == configured_id, User.company_id == company_id, User.is_active.is_(True)).first()
+        if assignee:
+            return assignee.id
     return None
