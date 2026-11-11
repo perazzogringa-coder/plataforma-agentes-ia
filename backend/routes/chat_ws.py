@@ -58,6 +58,12 @@ async def chat_websocket_endpoint(
             logger.error(f"[WebSocket] Acesso negado company_id={company_id}")
             await websocket.close(code=403)
             return
+        # Staff sockets may only survive the post-registration fence when the
+        # requested contact is assigned to them; manager repeats this check on
+        # every event delivery.
+        if principal.user_type == "user" and phone in {"ALL", "__global__"}:
+            await websocket.close(code=403)
+            return
         user_id = principal.user_id
         client_id = principal.client_id
 

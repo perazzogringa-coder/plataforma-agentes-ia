@@ -209,6 +209,9 @@ async def unified_websocket_endpoint(
         topic_list = [t.strip() for t in topics.split(",") if t.strip()]
         if not topic_list:
             topic_list = ["__global__"]  # Fallback para global se não especificado
+        if principal.user_type == "user" and any(topic in {"ALL", "__global__"} for topic in topic_list):
+            await websocket.close(code=403)
+            return
 
         logger.info(f"[WebSocket] Conectando para tópicos: {topic_list}")
 
