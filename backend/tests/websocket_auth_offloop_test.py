@@ -344,6 +344,103 @@ class _FakeManager:
         self.disconnect_calls.append((client_id, company_id, topic))
 
 
+class _StaffValidatorDb:
+    def __init__(self, assigned_contact=None):
+        self.assigned_contact = assigned_contact
+
+    def query(self, model):
+        result = (
+            SimpleNamespace(role="staff")
+            if model is chat_optimized.User
+            else self.assigned_contact
+        )
+        return SimpleNamespace(
+            filter=lambda *_args, **_kwargs: SimpleNamespace(first=lambda: result)
+        )
+
+
+def test_unified_staff_can_connect_without_initial_topics(monkeypatch):
+    async def scenario():
+        websocket = _FakeWebSocket()
+        manager = _FakeManager()
+
+        async def authenticate(_token, _company_id, *, resource_validator):
+            assert resource_validator(_StaffValidatorDb(), {
+                "user_type": "user", "id": "7", "client_id": "9"
+            })
+            return _principal()
+
+        async def revalidate(*_args, **_kwargs):
+            return _principal(operational_epoch=12)
+
+        monkeypatch.setattr(chat_optimized, "manager", manager)
+        monkeypatch.setattr(chat_optimized, "authenticate_websocket_access_off_loop", authenticate)
+        monkeypatch.setattr(chat_optimized, "revalidate_websocket_access_off_loop", revalidate)
+
+        await chat_optimized.unified_websocket_endpoint(
+            websocket=websocket, token="token", company_id=3, topics=""
+        )
+
+        assert websocket.accepted is True
+        assert manager.connect_calls[0][3] == []
+        assert websocket.sent[0]["topics"] == []
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("topics", ("__global__", "ALL", "5500000000007"))
+def test_unified_staff_rejects_global_and_unassigned_topics(monkeypatch, topics):
+    async def scenario():
+        websocket = _FakeWebSocket()
+
+        async def authenticate(_token, _company_id, *, resource_validator):
+            assert not resource_validator(_StaffValidatorDb(), {
+                "user_type": "user", "id": "7", "client_id": "9"
+            })
+            return None
+
+        monkeypatch.setattr(chat_optimized, "authenticate_websocket_access_off_loop", authenticate)
+
+        await chat_optimized.unified_websocket_endpoint(
+            websocket=websocket, token="token", company_id=3, topics=topics
+        )
+
+        assert websocket.closed == [(403, None)]
+
+    asyncio.run(scenario())
+
+
+def test_unified_master_keeps_global_fallback_for_empty_topics(monkeypatch):
+    async def scenario():
+        websocket = _FakeWebSocket()
+        manager = _FakeManager()
+        master = auth.WebSocketAccessSnapshot(
+            user_id="9", client_id="9", company_id="3", user_type="master",
+            auth_token_version=4, operational_epoch=None,
+        )
+
+        async def authenticate(*_args, **_kwargs):
+            return master
+
+        async def revalidate(*_args, **_kwargs):
+            return auth.WebSocketAccessSnapshot(
+                user_id="9", client_id="9", company_id="3", user_type="master",
+                auth_token_version=4, operational_epoch=12,
+            )
+
+        monkeypatch.setattr(chat_optimized, "manager", manager)
+        monkeypatch.setattr(chat_optimized, "authenticate_websocket_access_off_loop", authenticate)
+        monkeypatch.setattr(chat_optimized, "revalidate_websocket_access_off_loop", revalidate)
+
+        await chat_optimized.unified_websocket_endpoint(
+            websocket=websocket, token="token", company_id=3, topics=""
+        )
+
+        assert manager.connect_calls[0][3] == ["__global__"]
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize(
     ("route_module", "endpoint_name", "endpoint_kwargs"),
     (

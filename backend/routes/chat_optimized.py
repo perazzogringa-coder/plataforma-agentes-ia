@@ -174,7 +174,11 @@ async def unified_websocket_endpoint(
     - topics: lista de tópicos separados por vírgula (phones ou "__global__")
     """
     try:
-        requested_topics = [t.strip() for t in topics.split(",") if t.strip()] or ["__global__"]
+        # An empty initial subscription is valid for staff.  The frontend opens
+        # the unified socket before it knows which assigned contact to watch;
+        # treating that empty set as global would both reject the connection and
+        # start an unnecessary reconnect loop.
+        requested_topics = [t.strip() for t in topics.split(",") if t.strip()]
         def topics_validator(db, identity):
             if identity.get("user_type") != "user": return True
             staff = db.query(User).filter(User.id == int(identity["id"])).first()
@@ -215,8 +219,8 @@ async def unified_websocket_endpoint(
 
         # 3) Parsear lista de tópicos
         topic_list = [t.strip() for t in topics.split(",") if t.strip()]
-        if not topic_list:
-            topic_list = ["__global__"]  # Fallback para global se não especificado
+        if not topic_list and principal.user_type != "user":
+            topic_list = ["__global__"]  # Master fallback only
         if principal.user_type == "user" and any(topic in {"ALL", "__global__"} for topic in topic_list):
             await websocket.close(code=403)
             return
