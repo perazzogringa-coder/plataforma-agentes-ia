@@ -219,6 +219,31 @@ class Message(Base):
     client = relationship("Client", back_populates="messages")
     company = relationship("Company", foreign_keys=[company_id])
 
+class WebhookAudit(Base):
+    __tablename__ = "webhook_audit"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    instance_id = Column(Text, nullable=False)
+    company_id = Column(BigInteger, nullable=True)
+    message_id = Column(Text, nullable=True)
+    phone = Column(Text, nullable=True)
+    message_type = Column(Text, nullable=True)
+    message_data = Column(JSONB, nullable=True)
+    status = Column(Text, nullable=False)
+    processing_status = Column(Text, nullable=True)
+    task_id = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+    retry_count = Column(Integer, nullable=False, server_default="0")
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text("now()"))
+    updated_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text("now()"))
+    processed_at = Column(TIMESTAMP(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_webhook_audit_dedupe", "company_id", "message_id", "message_type", "created_at"),
+        Index("ix_webhook_audit_created_at", "created_at"),
+    )
+
+
 class Contact(Base):
     __tablename__ = "contacts"
 
@@ -231,6 +256,11 @@ class Contact(Base):
 
     # Nova coluna para indicar se o contato está em modo humano (True) ou modo IA (False)
     human_mode = Column(Boolean, default=False, nullable=False)
+    last_message_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    sender_lid = Column(String(255), nullable=True)
+    source_id = Column(String(255), nullable=True)
+    thumbnail_url = Column(Text, nullable=True)
+    unread_count = Column(Integer, nullable=False, server_default="0")
     # Current human owner.  A task is only a work item; this is the ACL source
     # used by the live chat.
     assigned_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
@@ -243,7 +273,7 @@ class Contact(Base):
     contact_tags = relationship("ContactTag", back_populates="contact", cascade="all, delete-orphan")
 
     __table_args__ = (
-        UniqueConstraint('client_id', 'phone', name='uq_contact_client_phone'),
+        UniqueConstraint('client_id', 'company_id', 'phone', name='uq_contact_client_company_phone'),
     )
 
 
