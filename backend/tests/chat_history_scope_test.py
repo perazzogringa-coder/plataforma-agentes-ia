@@ -53,7 +53,10 @@ class FakeDB:
         self.queries = []
 
     def query(self, model):
-        query = Query(rows=self.owners if model is Client else [])
+        query = Query(
+            first=SimpleNamespace(assigned_user_id=None) if model is Contact else None,
+            rows=self.owners if model is Client else [],
+        )
         self.queries.append((model, query))
         return query
 

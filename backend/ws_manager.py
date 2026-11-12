@@ -1468,7 +1468,7 @@ class ConnectionManager:
         ):
             return True
 
-        from backend.models import Client, User
+        from backend.models import Client, Contact, User
 
         try:
             client_id = int(connection.client_id)
@@ -1500,12 +1500,27 @@ class ConnectionManager:
             )
             .first()
         )
-        return bool(
+        if not bool(
             user
             and user.is_active
             and int(user.auth_token_version or 0)
             == int(connection.auth_token_version)
-        )
+        ):
+            return False
+        # Administrators retain workspace-wide live-chat visibility. Staff is
+        # never allowed global topics and is rechecked against the durable
+        # contact owner immediately before every event delivery.
+        if user.role == "admin":
+            return True
+        if connection.phone in {"ALL", "__global__"}:
+            return False
+        contact = db.query(Contact).filter(
+            Contact.company_id == int(connection.company_id),
+            Contact.client_id == client_id,
+            Contact.phone == connection.phone,
+            Contact.assigned_user_id == user_id,
+        ).first()
+        return contact is not None
 
     async def _detach_stale_company_connections(
         self,

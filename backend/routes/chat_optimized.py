@@ -17,6 +17,7 @@ from backend.auth import (
     resolve_company_owner_client_id,
 )
 from backend.services.message_metadata import message_metadata_for_response
+from backend.services.chat_access import require_contact_access
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -71,6 +72,7 @@ async def get_paged_messages(
     # The selected workspace owns its data.  A master can be associated with a
     # managed workspace, but its own client id must not replace that owner.
     client_id = resolve_company_owner_client_id(db, target_company_id)
+    require_contact_access(db, user, target_company_id, contact_phone, client_id)
 
     logger.info(f"[DEBUG] Buscando mensagens: client_id={client_id}, company_id={target_company_id}, phone={contact_phone}")
 
@@ -172,6 +174,13 @@ async def unified_websocket_endpoint(
     - topics: lista de tópicos separados por vírgula (phones ou "__global__")
     """
     try:
+        requested_topics = [t.strip() for t in topics.split(",") if t.strip()] or ["__global__"]
+        def topics_validator(db, identity):
+            if identity.get("user_type") != "user": return True
+            staff = db.query(User).filter(User.id == int(identity["id"])).first()
+            if not staff or staff.role == "admin": return bool(staff)
+            if any(topic in {"ALL", "__global__"} for topic in requested_topics): return False
+            return all(db.query(Contact).filter(Contact.company_id == company_id, Contact.client_id == int(identity["client_id"]), Contact.phone == topic, Contact.assigned_user_id == staff.id).first() is not None for topic in requested_topics)
         try:
             token = token or websocket.cookies.get("access_token")
             if not token:
@@ -180,6 +189,7 @@ async def unified_websocket_endpoint(
             principal = await authenticate_websocket_access_off_loop(
                 token,
                 company_id,
+                resource_validator=topics_validator,
             )
         except WebSocketAuthError as exc:
             logger.warning(
@@ -207,6 +217,9 @@ async def unified_websocket_endpoint(
         topic_list = [t.strip() for t in topics.split(",") if t.strip()]
         if not topic_list:
             topic_list = ["__global__"]  # Fallback para global se não especificado
+        if principal.user_type == "user" and any(topic in {"ALL", "__global__"} for topic in topic_list):
+            await websocket.close(code=403)
+            return
 
         logger.info(f"[WebSocket] Conectando para tópicos: {topic_list}")
 
@@ -219,6 +232,7 @@ async def unified_websocket_endpoint(
                 company_id,
                 expected_user_id=user_id,
                 expected_client_id=client_id,
+                resource_validator=topics_validator,
             )
             return (
                 int(fresh_principal.operational_epoch)

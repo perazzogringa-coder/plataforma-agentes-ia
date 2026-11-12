@@ -4,6 +4,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from typing import Optional
 
 from backend.ws_manager import manager
+from backend.models import Contact, User
 from backend.auth import (
     WebSocketAuthError,
     authenticate_websocket_access_off_loop,
@@ -30,6 +31,15 @@ async def chat_websocket_endpoint(
     registra no manager e fica aguardando mensagens do front.
     """
     try:
+        def topic_validator(db, identity):
+            if identity.get("user_type") != "user":
+                return True
+            user = db.query(User).filter(User.id == int(identity["id"])).first()
+            if not user or user.role == "admin":
+                return bool(user)
+            if phone in {"ALL", "__global__"}:
+                return False
+            return db.query(Contact).filter(Contact.company_id == company_id, Contact.client_id == int(identity["client_id"]), Contact.phone == phone, Contact.assigned_user_id == user.id).first() is not None
         try:
             token = token or websocket.cookies.get("access_token")
             if not token:
@@ -38,6 +48,7 @@ async def chat_websocket_endpoint(
             principal = await authenticate_websocket_access_off_loop(
                 token,
                 company_id,
+                resource_validator=topic_validator,
             )
         except WebSocketAuthError as exc:
             logger.warning(
@@ -58,6 +69,12 @@ async def chat_websocket_endpoint(
             logger.error(f"[WebSocket] Acesso negado company_id={company_id}")
             await websocket.close(code=403)
             return
+        # Staff sockets may only survive the post-registration fence when the
+        # requested contact is assigned to them; manager repeats this check on
+        # every event delivery.
+        if principal.user_type == "user" and phone in {"ALL", "__global__"}:
+            await websocket.close(code=403)
+            return
         user_id = principal.user_id
         client_id = principal.client_id
 
@@ -70,6 +87,7 @@ async def chat_websocket_endpoint(
                 company_id,
                 expected_user_id=user_id,
                 expected_client_id=client_id,
+                resource_validator=topic_validator,
             )
             return (
                 int(fresh_principal.operational_epoch)

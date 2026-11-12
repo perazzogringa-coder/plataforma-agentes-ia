@@ -92,6 +92,14 @@ def create_human_handoff_tools(
 
             assignment = selected_target.get("assignment") or {}
             assigned_to = _safe_positive_int(assignment.get("userId") or assignment.get("user_id"))
+            from backend.services.chat_access import resolve_handoff_assignee
+            try:
+                assigned_to = resolve_handoff_assignee(db, company_id, assigned_to)
+            except ValueError:
+                return {"success": False, "error": "assigned_user_not_found"}
+            if assigned_to is None:
+                return {"success": False, "error": "human_assignee_required"}
+            db_contact.assigned_user_id = assigned_to
             effective_priority = _normalize_priority(
                 priority or assignment.get("priority") or "medium"
             )
