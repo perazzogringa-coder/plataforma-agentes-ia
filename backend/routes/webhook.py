@@ -3494,6 +3494,8 @@ def mark_contact_as_read(
 
         return {"status": "ok", "message": "Contato marcado como lido"}
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"[mark_contact_as_read] Erro ao marcar contato como lido: {e}")
         db.rollback()
