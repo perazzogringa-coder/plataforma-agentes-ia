@@ -4713,6 +4713,28 @@ export async function releaseContactToBot(contactId: string): Promise<string> {
   }
 }
 
+export interface ChatAssignmentResponse {
+  phone: string;
+  assigned_user_id: number;
+  human_mode: boolean;
+  changed: boolean;
+}
+
+export async function assignContactAttendant(
+  contactId: string,
+  assigneeUserId: number,
+): Promise<ChatAssignmentResponse> {
+  const clientId = localStorage.getItem('client_id');
+  const companyId = localStorage.getItem('company_id') || localStorage.getItem('clinic_id');
+  if (!clientId || !companyId) throw new Error('Empresa não identificada');
+  const response = await api.post<ChatAssignmentResponse>(
+    `/api/atendimento/assign/${encodeURIComponent(contactId)}`,
+    { assignee_user_id: assigneeUserId },
+    { params: { client_id: clientId, company_id: companyId } },
+  );
+  return response.data;
+}
+
 
 // --------------------
 //    Funções de API

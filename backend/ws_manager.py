@@ -43,6 +43,7 @@ def _bounded_int_env(
     return max(minimum, min(configured, maximum))
 
 FLOW_BUILDER_WHATSAPP_TOPIC = "__flow_builder_whatsapp__"
+PRIVATE_USER_TOPIC_PREFIX = "__private_user__:"
 WEBSOCKET_SEND_TIMEOUT_SECONDS = 5.0
 WEBSOCKET_CLOSE_TIMEOUT_SECONDS = 2.0
 REDIS_REVOCATION_PUBLISH_TIMEOUT_SECONDS = 1.0
@@ -1154,6 +1155,14 @@ class ConnectionManager:
         already in `connections` and the revocation broadcast closes it.
         """
         normalized_phones = list(dict.fromkeys(str(phone) for phone in phones))
+        # Staff starts with an empty public subscription after PR #20. Keep one
+        # server-only topic so a later assignment can be delivered privately;
+        # this topic is never accepted from the browser nor exposed in the
+        # connection confirmation.
+        if user_type == "user" and user_id is not None:
+            private_topic = f"{PRIVATE_USER_TOPIC_PREFIX}{int(user_id)}"
+            if private_topic not in normalized_phones:
+                normalized_phones.append(private_topic)
         for phone in normalized_phones:
             await self.connect(
                 websocket,
@@ -1511,6 +1520,9 @@ class ConnectionManager:
         # never allowed global topics and is rechecked against the durable
         # contact owner immediately before every event delivery.
         if user.role == "admin":
+            return True
+        private_topic = f"{PRIVATE_USER_TOPIC_PREFIX}{user.id}"
+        if connection.phone == private_topic:
             return True
         if connection.phone in {"ALL", "__global__"}:
             return False
@@ -2055,6 +2067,31 @@ class ConnectionManager:
                 _event_claimed=True,
                 _event_channel=event_channel,
             )
+
+    async def notify_chat_assignment(
+        self,
+        *,
+        company_id: int,
+        user_id: int,
+        message: Dict[str, Any],
+    ) -> str:
+        """Deliver an assignment only to the destination staff member.
+
+        The internal topic is registered by the server for the authenticated
+        staff socket. It is not a client-selectable global subscription.
+        """
+        payload = dict(message)
+        payload["company_id"] = int(company_id)
+        payload["target_user_id"] = int(user_id)
+        payload.setdefault("type", "contact_assignment_changed")
+        return await self.broadcast_to_phone(
+            int(company_id),
+            f"{PRIVATE_USER_TOPIC_PREFIX}{int(user_id)}",
+            payload,
+            _event_channel=self._websocket_channel(
+                f"chat_assignment:{company_id}:{user_id}"
+            ),
+        )
 
     async def send_task_notification(self, user_id: int, notification_data: dict):
         """

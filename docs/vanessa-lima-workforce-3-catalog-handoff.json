@@ -1,0 +1,29 @@
+{
+  "workforce_id": 3,
+  "root_agent_key": "vanessa_lima_2",
+  "configuration_patch": {
+    "tools": [
+      {
+        "id": "human_handoff.create_task",
+        "enabled": true
+      }
+    ],
+    "metadata": {
+      "human_handoff_targets": [
+        {
+          "queue_key": "separacao_pedido",
+          "queue_name": "Kethelyn - separação de pedido",
+          "when": "Use somente depois de a Ana ter enviado o catálogo e confirmar, pela imagem e pelo contexto, quais peças o cliente escolheu. Em dúvida, peça confirmação e não transfira.",
+          "assignment": {
+            "userId": 4,
+            "priority": "high",
+            "silentTransfer": true,
+            "requireCatalogSelectionConfirmation": true,
+            "tags": ["catalog_selection", "separacao_pedido"]
+          }
+        }
+      ]
+    },
+    "instruction_appendix": "Após criar o handoff para separacao_pedido, não calcule frete, não confirme disponibilidade e não finalize pedido. A tarefa humana continua o atendimento."
+  }
+}

@@ -41,6 +41,8 @@ def create_human_handoff_tools(
         lead_name: Annotated[str, Field(description="Nome do lead, se conhecido.")] = "",
         priority: Annotated[str, Field(description="Prioridade opcional: low, medium, high ou urgent. Vazio usa a fila configurada.")] = "",
         pause_bot: Annotated[bool, Field(description="True para pausar a IA neste contato apos criar o handoff.")] = True,
+        catalog_selection_confirmed: Annotated[bool, Field(description="True apenas quando o contexto confirma que o cliente escolheu peças do catálogo enviado.")] = False,
+        catalog_selection_evidence: Annotated[str, Field(description="Evidência curta da escolha confirmada: itens lidos no print e/ou confirmação textual do cliente.")] = "",
     ) -> Dict[str, Any]:
         """
         Cria uma tarefa de atendimento humano para um lead.
@@ -67,6 +69,21 @@ def create_human_handoff_tools(
                 "message_for_agent": "Escolha uma das filas humanas configuradas antes de criar o handoff.",
             }
 
+        assignment = selected_target.get("assignment") or {}
+        requires_catalog_confirmation = bool(
+            assignment.get("requireCatalogSelectionConfirmation") is True
+            or assignment.get("require_catalog_selection_confirmation") is True
+        )
+        if requires_catalog_confirmation and (
+            not catalog_selection_confirmed
+            or len(catalog_selection_evidence.strip()) < 8
+        ):
+            return {
+                "success": False,
+                "error": "catalog_selection_not_confirmed",
+                "message_for_agent": "Não transfira por imagem isolada. Confirme quais peças do catálogo o cliente escolheu antes de acionar a fila humana.",
+            }
+
         resolved_phone = _normalize_phone(lead_phone or context_phone or "")
         if not resolved_phone:
             return {
@@ -87,10 +104,7 @@ def create_human_handoff_tools(
                 return contact
 
             db_contact: Contact = contact["contact"]
-            if pause_bot:
-                db_contact.human_mode = True
 
-            assignment = selected_target.get("assignment") or {}
             assigned_to = _safe_positive_int(assignment.get("userId") or assignment.get("user_id"))
             from backend.services.chat_access import resolve_handoff_assignee
             try:
@@ -99,53 +113,85 @@ def create_human_handoff_tools(
                 return {"success": False, "error": "assigned_user_not_found"}
             if assigned_to is None:
                 return {"success": False, "error": "human_assignee_required"}
-            db_contact.assigned_user_id = assigned_to
+            from backend.services.chat_assignment import assign_chat_contact
+            assignment_result = assign_chat_contact(
+                db,
+                company_id=company_id,
+                client_id=db_contact.client_id,
+                phone=db_contact.phone,
+                assignee_user_id=assigned_to,
+                pause_bot=pause_bot,
+            )
+            db_contact = assignment_result.contact
+            assigned_to = assignment_result.assignee.id
             effective_priority = _normalize_priority(
                 priority or assignment.get("priority") or "medium"
             )
             transfer_message = str(assignment.get("transferMessage") or "").strip()
             silent_transfer = _is_silent_transfer(assignment)
 
-            task = ContactTask(
-                contact_id=db_contact.id,
-                company_id=company_id,
-                assigned_to=assigned_to,
-                task_type="message",
-                title=f"Atender lead - {selected_target['queue_name']}",
-                description=_build_task_description(
-                    reason=reason,
-                    summary=summary,
-                    lead_name=lead_name or db_contact.name or "",
-                    lead_phone=resolved_phone,
-                ),
-                scheduled_for=datetime.now(timezone.utc),
-                reminder_minutes=0,
-                priority=effective_priority,
-                tags=_handoff_tags(selected_target),
-                task_metadata={
-                    "source": "agents_sdk_human_handoff",
-                    "queue_key": selected_target["queue_key"],
-                    "queue_name": selected_target["queue_name"],
-                    "reason": reason,
-                    "summary": summary,
-                    "pause_bot": pause_bot,
-                    "assignment": assignment,
-                    "runtime": {
-                        "workforce_id": getattr(runtime_context, "workforce_id", None),
-                        "workforce_name": getattr(runtime_context, "workforce_name", None),
-                        "root_agent_key": getattr(runtime_context, "root_agent_key", None),
-                        "flow_id": getattr(runtime_context, "flow_id", None),
-                        "node_id": getattr(runtime_context, "node_id", None),
-                        "channel": getattr(runtime_context, "channel", None),
+            task = None
+            if assignment_result.changed:
+                task = ContactTask(
+                    contact_id=db_contact.id,
+                    company_id=company_id,
+                    assigned_to=assigned_to,
+                    task_type="message",
+                    title=f"Atender lead - {selected_target['queue_name']}",
+                    description=_build_task_description(
+                        reason=reason,
+                        summary=summary,
+                        lead_name=lead_name or db_contact.name or "",
+                        lead_phone=resolved_phone,
+                    ),
+                    scheduled_for=datetime.now(timezone.utc),
+                    reminder_minutes=0,
+                    priority=effective_priority,
+                    tags=_handoff_tags(selected_target),
+                    task_metadata={
+                        "source": "agents_sdk_human_handoff",
+                        "queue_key": selected_target["queue_key"],
+                        "queue_name": selected_target["queue_name"],
+                        "reason": reason,
+                        "summary": summary,
+                        "pause_bot": pause_bot,
+                        "catalog_selection_confirmed": requires_catalog_confirmation,
+                        "catalog_selection_evidence": catalog_selection_evidence.strip() if requires_catalog_confirmation else "",
+                        "assignment": assignment,
+                        "runtime": {
+                            "workforce_id": getattr(runtime_context, "workforce_id", None),
+                            "workforce_name": getattr(runtime_context, "workforce_name", None),
+                            "root_agent_key": getattr(runtime_context, "root_agent_key", None),
+                            "flow_id": getattr(runtime_context, "flow_id", None),
+                            "node_id": getattr(runtime_context, "node_id", None),
+                            "channel": getattr(runtime_context, "channel", None),
+                        },
                     },
-                },
-            )
-            db.add(task)
+                )
+                db.add(task)
             db.commit()
-            db.refresh(task)
+            if task is not None:
+                db.refresh(task)
+
+            if assignment_result.changed:
+                from backend.ws_manager import manager
+                if assignment_result.previous_assignee_id not in (None, assigned_to):
+                    await manager.publish_access_revocation(
+                        [], user_ids=[assignment_result.previous_assignee_id]
+                    )
+                await manager.notify_chat_assignment(
+                    company_id=company_id,
+                    user_id=assigned_to,
+                    message={
+                        "type": "contact_assignment_changed",
+                        "phone": db_contact.phone,
+                        "human_mode": bool(pause_bot),
+                        "assigned_user_id": assigned_to,
+                    },
+                )
 
             task_payload = {
-                "task_id": task.id,
+                "task_id": task.id if task is not None else None,
                 "contact_id": db_contact.id,
                 "queue_key": selected_target["queue_key"],
                 "queue_name": selected_target["queue_name"],
@@ -161,7 +207,7 @@ def create_human_handoff_tools(
 
             return {
                 "success": True,
-                "task_id": task.id,
+                "task_id": task.id if task is not None else None,
                 "contact_id": db_contact.id,
                 "queue": {
                     "key": selected_target["queue_key"],

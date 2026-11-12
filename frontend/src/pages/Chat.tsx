@@ -41,6 +41,9 @@ import api, {
   markContactAsRead,
   takeOverContact,
   releaseContactToBot,
+  assignContactAttendant,
+  listUsers,
+  type User,
   sendWhatsAppText,
   sendWhatsAppReaction,
   sendWhatsAppAudio,
@@ -258,6 +261,11 @@ const ChatPage5: React.FC = () => {
   const [skipHistory, setSkipHistory] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [showNewChatModal, setShowNewChatModal] = useState(false);
+  const [showAssignmentPicker, setShowAssignmentPicker] = useState(false);
+  const [attendants, setAttendants] = useState<User[]>([]);
+  const [selectedAssigneeId, setSelectedAssigneeId] = useState('');
+  const [isAssigning, setIsAssigning] = useState(false);
+  const [assignmentNotice, setAssignmentNotice] = useState<string | null>(null);
   const [modalSearchTerm, setModalSearchTerm] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -985,6 +993,14 @@ const ChatPage5: React.FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+    return unifiedWebSocketManager.onMessage('*', (data) => {
+      if (data?.type !== 'contact_assignment_changed' || !data.phone) return;
+      setAssignmentNotice('Uma conversa foi atribuída a você.');
+      loadContacts(0, 50, false);
+    });
+  }, []);
+
   // CORREÇÃO: Inscrever-se apenas no contato selecionado
   useEffect(() => {
     if (!selectedContact) return;
@@ -1552,6 +1568,45 @@ const ChatPage5: React.FC = () => {
     }
   };
 
+  const canAssignAttendant = () => {
+    const userType = localStorage.getItem('user_type');
+    return userType !== 'user' || localStorage.getItem('user_role') === 'admin';
+  };
+
+  const openAssignmentPicker = async () => {
+    if (!canAssignAttendant()) return;
+    try {
+      const companyId = localStorage.getItem('company_id') || localStorage.getItem('clinic_id');
+      const users = await listUsers(companyId ? Number(companyId) : undefined);
+      setAttendants(users.filter((user) => user.is_active));
+      setSelectedAssigneeId('');
+      setShowAssignmentPicker(true);
+    } catch (error) {
+      console.error('Erro ao carregar atendentes:', error);
+      setAssignmentNotice('Não foi possível carregar os atendentes.');
+    }
+  };
+
+  const handleAssignAttendant = async () => {
+    if (!selectedContact || !selectedAssigneeId) return;
+    setIsAssigning(true);
+    try {
+      const result = await assignContactAttendant(
+        selectedContact.phone,
+        Number(selectedAssigneeId),
+      );
+      setSelectedContact({ ...selectedContact, human_mode: result.human_mode });
+      setShowAssignmentPicker(false);
+      setAssignmentNotice('Conversa atribuída à atendente.');
+      await loadContacts(0, 50, false);
+    } catch (error) {
+      console.error('Erro ao atribuir atendente:', error);
+      setAssignmentNotice('Não foi possível atribuir a conversa.');
+    } finally {
+      setIsAssigning(false);
+    }
+  };
+
   const selectContactFromList = async (contact: Contact) => {
     // Normalizar o telefone antes de selecionar o contato
     const normalizedPhone = normalizePhone(contact.phone);
@@ -1855,7 +1910,8 @@ const ChatPage5: React.FC = () => {
     : null;
 
   const composerModeButton = selectedContact ? (
-    <button
+    <>
+      <button
       type="button"
       onClick={handleToggleAtendimento}
       className={cx(
@@ -1870,7 +1926,23 @@ const ChatPage5: React.FC = () => {
       aria-label={selectedContact.human_mode ? 'Devolver atendimento para IA' : 'Assumir atendimento'}
     >
       {selectedContact.human_mode ? <UserIcon className="h-4 w-4" /> : <CpuIcon className="h-4 w-4" />}
-    </button>
+      </button>
+      {canAssignAttendant() && (
+        <button
+          type="button"
+          onClick={openAssignmentPicker}
+          className={cx(
+            'inline-flex min-h-8 shrink-0 items-center justify-center rounded-xl border px-2 text-xs font-semibold transition-colors',
+            isDark ? 'border-white/15 text-white hover:bg-white/10' : 'border-brand/15 text-brand hover:bg-brand/5',
+          )}
+          title="Atribuir atendente"
+          aria-label="Atribuir atendente"
+        >
+          <UserPlus className="mr-1 h-3.5 w-3.5" />
+          Atribuir
+        </button>
+      )}
+    </>
   ) : null;
 
   // Se for mobile, renderiza o componente otimizado
@@ -2576,6 +2648,38 @@ const ChatPage5: React.FC = () => {
             onClose={handleCloseContactProfile}
             onConvertToLead={handleConvertSelectedContactToLead}
           />
+        )}
+
+        {showAssignmentPicker && selectedContact && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true" aria-label="Atribuir atendente">
+            <div className={cx('w-full max-w-sm rounded-2xl border p-5 shadow-flat-md', isDark ? 'border-white/10 bg-brand text-white' : 'border-brand/10 bg-white text-brand')}>
+              <h2 className="text-base font-bold">Atribuir atendente</h2>
+              <p className={cx('mt-1 text-sm', isDark ? 'text-white/60' : 'text-brand/60')}>Selecione uma atendente ativa desta empresa.</p>
+              <select
+                className={cx('mt-4 w-full rounded-xl border px-3 py-2 text-sm', isDark ? 'border-white/15 bg-white/10' : 'border-brand/20 bg-white')}
+                value={selectedAssigneeId}
+                onChange={(event) => setSelectedAssigneeId(event.target.value)}
+              >
+                <option value="">Selecione uma atendente</option>
+                {attendants.map((attendant) => (
+                  <option key={attendant.id} value={attendant.id}>{attendant.name}</option>
+                ))}
+              </select>
+              <div className="mt-5 flex justify-end gap-2">
+                <button type="button" onClick={() => setShowAssignmentPicker(false)} className={agentiveSecondaryButtonClass(isDark)}>Cancelar</button>
+                <button type="button" disabled={!selectedAssigneeId || isAssigning} onClick={handleAssignAttendant} className={agentivePrimaryButtonClass(isDark)}>
+                  {isAssigning ? 'Atribuindo...' : 'Atribuir'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {assignmentNotice && (
+          <div className="fixed bottom-5 right-5 z-50 rounded-xl bg-brand px-4 py-3 text-sm font-semibold text-white shadow-flat-md" role="status">
+            {assignmentNotice}
+            <button type="button" className="ml-3 underline" onClick={() => setAssignmentNotice(null)}>Fechar</button>
+          </div>
         )}
 
       </div>
