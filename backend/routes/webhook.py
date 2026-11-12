@@ -1599,6 +1599,35 @@ def get_contacts(
     print(f"🔍 CHECKPOINT: Filtros de funil: {funnel_stages}")
     print(f"🔍 CHECKPOINT: Filtros de fluxo: {active_flows}")
 
+    # Some installations do not have the optional automation execution
+    # tables. Preserve the contact-list contract without inventing records;
+    # filters relying on an unavailable feature fail explicitly below.
+    flow_relations = {
+        "follow_up": ("follow_up_executions", "follow_up_steps"),
+        "confirmation": ("confirmation_executions", "confirmation_steps"),
+        "noshow": ("noshow_follow_up_executions", "noshow_follow_up_steps"),
+        "pos_consulta": ("pos_consulta_executions", "pos_consulta_steps"),
+        "pos_venda": ("pos_venda_executions", "pos_venda_steps"),
+    }
+    availability = {}
+    for flow_name, relations in flow_relations.items():
+        availability[flow_name] = all(
+            db.execute(text("SELECT to_regclass(:relation) IS NOT NULL"),
+                       {"relation": f"public.{relation}"}).scalar()
+            for relation in relations
+        )
+    unavailable_flows = [name for name, present in availability.items() if not present]
+    archive_available = bool(db.execute(text("""
+        SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_schema='public' AND table_name='contacts'
+                         AND column_name='archived')
+    """)).scalar())
+    if archived_only and not archive_available:
+        raise HTTPException(status_code=503, detail="Filtro de arquivamento indisponível nesta instalação")
+    requested_flows = {name.strip() for name in (active_flows or "").split(",") if name.strip()}
+    if requested_flows.intersection(unavailable_flows):
+        raise HTTPException(status_code=503, detail="Filtro de fluxo indisponível nesta instalação")
+
     def build_contacts_query(base_conditions: str, additional_filters: str = "", team_filter: str = "") -> str:
         """Constrói a query base de contatos com filtros aplicados"""
         search_filter = ""
@@ -1611,16 +1640,16 @@ def get_contacts(
 
         # Filtros de arquivamento
         archive_filter = ""
-        if archived_only:
+        if archived_only and archive_available:
             archive_filter = " AND c.archived = true"
-        elif not show_archived:
+        elif not show_archived and archive_available:
             archive_filter = " AND (c.archived = false OR c.archived IS NULL)"
 
         history_filter = ""
         if history_only:
              history_filter = " AND c.last_message_at IS NOT NULL"
 
-        return f"""
+        sql = f"""
             SELECT
                 c.id,
                 c.phone,
@@ -1871,6 +1900,19 @@ def get_contacts(
             ORDER BY c.last_message_at DESC NULLS LAST
             LIMIT :limit OFFSET :offset
         """
+        for flow_name, label in (
+            ("follow_up", "Follow-up"), ("confirmation", "Confirmation"),
+            ("noshow", "No-show"), ("pos_consulta", "Pós-consulta"),
+            ("pos_venda", "Pós-venda"),
+        ):
+            if availability[flow_name]:
+                continue
+            start_marker = f"-- Flow Progress: {label}"
+            end_marker = f") as {flow_name}_progress"
+            start = sql.index(start_marker)
+            end = sql.index(end_marker, start) + len(end_marker)
+            sql = sql[:start] + f"NULL::json as {flow_name}_progress" + sql[end:]
+        return sql
 
     # Preparar parâmetros da query
     query_params = {
