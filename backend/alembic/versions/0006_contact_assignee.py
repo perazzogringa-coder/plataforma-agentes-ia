@@ -1,13 +1,13 @@
-"""Add the durable live-chat owner.
+"""Add the durable live-chat owner after the production contact identity chain.
 
-Revision ID: 0002_contact_assignee
-Revises: 0001
+Revision ID: 0006_contact_assignee
+Revises: 0005_contacts_company_identity
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0002_contact_assignee"
-down_revision = "0001"
+revision = "0006_contact_assignee"
+down_revision = "0005_contacts_company_identity"
 branch_labels = None
 depends_on = None
 

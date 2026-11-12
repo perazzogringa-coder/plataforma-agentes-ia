@@ -66,7 +66,7 @@ app.conf.update(
         'backend.worker.tasks_scheduled_messages',  # NOVO: para mensagens agendadas
         'backend.worker.tasks_agent_dynamic_followup',  # NOVO: follow-up dinamico do Agent Builder
         'backend.worker.tasks_nutrition_campaign',  # NOVO: para campanhas de nutrição
-        # 'backend.agents_sdk.tasks.celery_tasks',  # NOVO: para Agents SDK Database (DESABILITADO TEMPORARIAMENTE: Erro de import SQLiteSession)
+        'backend.agents_sdk.tasks.celery_tasks',
         'backend.worker.process_message_waha',  # NOVO: para processamento WAHA
         'backend.worker.agent_workforce_debounce',
         'backend.worker.tasks_flow',  # NOVO: para execução de flows FlowBuilder
