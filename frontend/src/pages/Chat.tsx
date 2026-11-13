@@ -2667,7 +2667,7 @@ const ChatPage5: React.FC = () => {
               </select>
               <div className="mt-5 flex justify-end gap-2">
                 <button type="button" onClick={() => setShowAssignmentPicker(false)} className={agentiveSecondaryButtonClass(isDark)}>Cancelar</button>
-                <button type="button" disabled={!selectedAssigneeId || isAssigning} onClick={handleAssignAttendant} className={agentivePrimaryButtonClass(isDark)}>
+                <button type="button" disabled={!selectedAssigneeId || isAssigning} onClick={handleAssignAttendant} className={agentivePrimaryButtonClass()}>
                   {isAssigning ? 'Atribuindo...' : 'Atribuir'}
                 </button>
               </div>
