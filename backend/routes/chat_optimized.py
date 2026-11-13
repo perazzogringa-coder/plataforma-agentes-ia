@@ -8,7 +8,7 @@ from backend.auth import get_current_user
 from backend.models import Message, Client, User, Contact
 from datetime import datetime
 import math
-from backend.ws_manager import manager
+from backend.ws_manager import PRIVATE_USER_TOPIC_PREFIX, manager
 from backend.auth import (
     WebSocketAuthError,
     authenticate_websocket_access_off_loop,
@@ -183,7 +183,11 @@ async def unified_websocket_endpoint(
             if identity.get("user_type") != "user": return True
             staff = db.query(User).filter(User.id == int(identity["id"])).first()
             if not staff or staff.role == "admin": return bool(staff)
-            if any(topic in {"ALL", "__global__"} for topic in requested_topics): return False
+            if any(
+                topic in {"ALL", "__global__"}
+                or topic.startswith(PRIVATE_USER_TOPIC_PREFIX)
+                for topic in requested_topics
+            ): return False
             return all(db.query(Contact).filter(Contact.company_id == company_id, Contact.client_id == int(identity["client_id"]), Contact.phone == topic, Contact.assigned_user_id == staff.id).first() is not None for topic in requested_topics)
         try:
             token = token or websocket.cookies.get("access_token")
@@ -221,7 +225,11 @@ async def unified_websocket_endpoint(
         topic_list = [t.strip() for t in topics.split(",") if t.strip()]
         if not topic_list and principal.user_type != "user":
             topic_list = ["__global__"]  # Master fallback only
-        if principal.user_type == "user" and any(topic in {"ALL", "__global__"} for topic in topic_list):
+        if principal.user_type == "user" and any(
+            topic in {"ALL", "__global__"}
+            or topic.startswith(PRIVATE_USER_TOPIC_PREFIX)
+            for topic in topic_list
+        ):
             await websocket.close(code=403)
             return
 

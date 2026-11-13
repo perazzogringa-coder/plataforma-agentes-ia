@@ -8,6 +8,7 @@ import pytest
 from fastapi import HTTPException
 from backend.routes import webhook
 from backend.routes import atendimento
+from backend.services.chat_assignment import ChatAssignment
 
 def denied(*_args, **_kwargs):
     raise HTTPException(status_code=403, detail="Acesso negado a esta conversa")
@@ -38,3 +39,33 @@ def test_unassigned_staff_cannot_change_human_mode(monkeypatch, handoff):
     with pytest.raises(HTTPException) as exc:
         __import__('asyncio').run(handoff("5511", 1, 10, SimpleNamespace(), SimpleNamespace()))
     assert exc.value.status_code == 403
+
+
+def test_reassignment_revokes_only_the_previous_staff_socket(monkeypatch):
+    calls = []
+    contact = SimpleNamespace(phone="5511", human_mode=True)
+    assignee = SimpleNamespace(id=4)
+
+    monkeypatch.setattr(atendimento, "require_chat_assignment_administrator", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        atendimento,
+        "assign_chat_contact",
+        lambda *_args, **_kwargs: ChatAssignment(contact, assignee, True, 7),
+    )
+
+    async def revoked(company_ids, *, user_ids=()):
+        calls.append((company_ids, list(user_ids)))
+
+    async def notified(**_kwargs):
+        return "delivered"
+
+    monkeypatch.setattr(atendimento.manager, "publish_access_revocation", revoked)
+    monkeypatch.setattr(atendimento.manager, "notify_chat_assignment", notified)
+    db = SimpleNamespace(commit=lambda: None, refresh=lambda _contact: None)
+
+    result = __import__('asyncio').run(atendimento.assign_attendant(
+        "5511", atendimento.AssignAttendantRequest(assignee_user_id=4), 2, 2, db, SimpleNamespace()
+    ))
+
+    assert result["assigned_user_id"] == 4
+    assert calls == [([], [7])]
