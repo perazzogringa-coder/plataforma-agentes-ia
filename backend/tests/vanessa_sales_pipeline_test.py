@@ -11,6 +11,7 @@ from backend.services.vanessa_sales_pipeline import (
     move_sales_lead,
     provision_sales_pipeline,
 )
+from backend.routes.crm_kanban import _commercial_pipeline_id, get_pipelines_api_key
 from backend.agents_sdk.tools.crm_pipeline_tools import create_crm_pipeline_tools
 
 
@@ -86,5 +87,28 @@ def test_ana_retail_event_tool_moves_a_real_company_contact():
         lead = ensure_sales_lead(db, contact=contact)
         pipeline = provision_sales_pipeline(db, company_id=company.id)
         assert lead.current_stage_id == pipeline.stage_ids["catalog_sent"]
+    finally:
+        db.close()
+
+
+def test_commercial_pipeline_marker_selects_only_the_provisioned_pipeline():
+    db = SessionLocal()
+    try:
+        company, _client, _first, _second, _contact = _seed_company(db)
+        assert _commercial_pipeline_id(db, company.id) is None
+
+        configured = provision_sales_pipeline(db, company_id=company.id)
+        db.commit()
+
+        assert _commercial_pipeline_id(db, company.id) == configured.pipeline.id
+
+        response = asyncio.run(get_pipelines_api_key(
+            client_id=_client.id,
+            company_id=company.id,
+            db=db,
+            current_client=_client,
+        ))
+        markers = {pipeline.id: pipeline.is_commercial_pipeline for pipeline in response}
+        assert markers == {configured.pipeline.id: True}
     finally:
         db.close()

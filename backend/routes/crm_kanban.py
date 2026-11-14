@@ -95,9 +95,20 @@ class PipelineResponse(PipelineBase):
     created_at: str
     updated_at: str
     stages: List[PipelineStageResponse]
+    # Companies that explicitly provisioned the wholesale CRM can designate
+    # one pipeline for the operational board without changing legacy ones.
+    is_commercial_pipeline: bool = False
 
     class Config:
         orm_mode = True
+
+
+def _commercial_pipeline_id(db: Session, company_id: int) -> Optional[int]:
+    """Return the validated commercial pipeline selected by a company, if any."""
+    from backend.services.vanessa_sales_pipeline import configured_sales_pipeline
+
+    configured = configured_sales_pipeline(db, company_id=company_id)
+    return configured.pipeline.id if configured is not None else None
 
 class LeadMove(BaseModel):
     stage_id: int
@@ -150,6 +161,8 @@ async def get_pipelines(
 
     from backend.models import Pipeline
 
+    commercial_pipeline_id = _commercial_pipeline_id(db, company_id)
+
     pipelines = db.query(Pipeline).filter(
         Pipeline.company_id == company_id
     ).all()
@@ -182,7 +195,8 @@ async def get_pipelines(
             created_by_user_id=pipeline.created_by_user_id,
             created_at=pipeline.created_at.isoformat() if pipeline.created_at else "",
             updated_at=pipeline.updated_at.isoformat() if pipeline.updated_at else "",
-            stages=stages_data
+            stages=stages_data,
+            is_commercial_pipeline=pipeline.id == commercial_pipeline_id,
         ))
 
     return result
@@ -206,6 +220,8 @@ async def get_pipelines_api_key(
 
     from backend.models import Pipeline
 
+    commercial_pipeline_id = _commercial_pipeline_id(db, company_id)
+
     pipelines = db.query(Pipeline).filter(
         Pipeline.company_id == company_id
     ).all()
@@ -238,7 +254,8 @@ async def get_pipelines_api_key(
             created_by_user_id=pipeline.created_by_user_id,
             created_at=pipeline.created_at.isoformat() if pipeline.created_at else "",
             updated_at=pipeline.updated_at.isoformat() if pipeline.updated_at else "",
-            stages=stages_data
+            stages=stages_data,
+            is_commercial_pipeline=pipeline.id == commercial_pipeline_id,
         ))
 
     return result

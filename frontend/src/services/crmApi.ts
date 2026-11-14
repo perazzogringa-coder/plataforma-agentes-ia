@@ -67,6 +67,7 @@ export interface Pipeline {
   created_by_user_id?: number;
   created_at?: string;
   updated_at?: string;
+  is_commercial_pipeline?: boolean;
 }
 
 export interface PipelineStage {

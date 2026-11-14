@@ -25,7 +25,7 @@ import {
   Link2,
   Loader2,
 } from 'lucide-react';
-import { crmApi, pipelineApi, Lead as BackendLead, Column } from '../services/crmApi.ts';
+import { crmApi, pipelineApi, Lead as BackendLead, Column, Pipeline, PipelineStage } from '../services/crmApi.ts';
 import api, { criarLead, LeadCreate } from '../services/api.ts';
 import LeadProfile from '../components/LeadProfile.tsx';
 import TaskPreview from '../components/TaskPreview.tsx';
@@ -535,6 +535,33 @@ export default function CRMv4() {
   // Colunas que não podem ser removidas
   const COLUNAS_PROTEGIDAS = ['novo_lead'];
 
+  const getPreferredPipeline = (pipelines: Pipeline[]): Pipeline | undefined => (
+    pipelines.find(pipeline => pipeline.is_commercial_pipeline) || pipelines[0]
+  );
+
+  const getPipelineColumns = (pipeline: Pipeline): Column[] => {
+    const stageColumns = (pipeline.stages || [])
+      .map((stage: PipelineStage) => ({
+        id: stage.id.toString(),
+        title: stage.name,
+        color: stage.color || 'border-yellow-500',
+        order: stage.order,
+        stageId: stage.id,
+        pipelineId: pipeline.id,
+        percentageBaseStageId: stage.percentage_base_stage_id ?? null
+      }))
+      .sort((a, b) => a.order - b.order);
+
+    // A provisioned commercial pipeline already includes its initial stage.
+    // Legacy pipelines retain the historical virtual "Novo Lead" column.
+    if (pipeline.is_commercial_pipeline) return stageColumns;
+
+    return [
+      ...COLUNAS_PADRAO,
+      ...stageColumns
+    ];
+  };
+
   // Carregar dados iniciais - executar apenas uma vez na montagem
   useEffect(() => {
     const loadInitialData = async () => {
@@ -613,39 +640,11 @@ export default function CRMv4() {
 
         try {
           // Tentar buscar estágios do pipeline do banco
-          let pipelineId = 1;
           try {
             const pipelines = await pipelineApi.getPipelines();
-            if (pipelines && pipelines.length > 0) {
-              pipelineId = pipelines[0].id;
-
-              // Buscar estágios do pipeline
-              const stages = await pipelineApi.getStages(pipelineId);
-              if (stages && stages.length > 0) {
-                // Filtrar estágios que não são colunas padrão
-                const customStages = stages
-                  .filter(stage => !COLUNAS_PADRAO.some(col => col.id === stage.id.toString()))
-                  .map(stage => ({
-                    id: stage.id.toString(),
-                    title: stage.name,
-                    color: stage.color || 'border-yellow-500',
-                    order: stage.order,
-                    stageId: stage.id,
-                    percentageBaseStageId: stage.percentage_base_stage_id ?? null
-                  }))
-                  .sort((a, b) => a.order - b.order);
-
-                // Encontrar posição de inserção (depois de "Novo Lead")
-                const novoLeadIndex = allColumns.findIndex(col => col.id === 'novo_lead');
-                const insertIndex = novoLeadIndex + 1;
-
-                // Inserir estágios personalizados entre "Novo Lead" e "Ganhou/Perdido"
-                allColumns = [
-                  ...allColumns.slice(0, insertIndex),
-                  ...customStages,
-                  ...allColumns.slice(insertIndex)
-                ];
-              }
+            const pipeline = getPreferredPipeline(pipelines);
+            if (pipeline && pipeline.stages?.length) {
+              allColumns = getPipelineColumns(pipeline);
             }
           } catch (pipelineError) {
             console.warn('Falha ao buscar estágios do pipeline, usando apenas colunas padrão:', pipelineError);
@@ -834,8 +833,9 @@ export default function CRMv4() {
       let pipelineId = 1; // Default
       try {
         const pipelines = await pipelineApi.getPipelines();
-        if (pipelines && pipelines.length > 0) {
-          pipelineId = pipelines[0].id;
+        const pipeline = getPreferredPipeline(pipelines);
+        if (pipeline) {
+          pipelineId = pipeline.id;
         } else {
           console.warn('Nenhum pipeline encontrado, usando ID padrão');
         }
@@ -1547,39 +1547,11 @@ export default function CRMv4() {
 
         try {
           // Tentar buscar estágios do pipeline do banco
-          let pipelineId = 1;
           try {
             const pipelines = await pipelineApi.getPipelines();
-            if (pipelines && pipelines.length > 0) {
-              pipelineId = pipelines[0].id;
-
-              // Buscar estágios do pipeline
-              const stages = await pipelineApi.getStages(pipelineId);
-              if (stages && stages.length > 0) {
-                // Filtrar estágios que não são colunas padrão
-                const customStages = stages
-                  .filter(stage => !COLUNAS_PADRAO.some(col => col.id === stage.id.toString()))
-                  .map(stage => ({
-                    id: stage.id.toString(),
-                    title: stage.name,
-                    color: stage.color || 'border-yellow-500',
-                    order: stage.order,
-                    stageId: stage.id,
-                    percentageBaseStageId: stage.percentage_base_stage_id ?? null
-                  }))
-                  .sort((a, b) => a.order - b.order);
-
-                // Encontrar posição de inserção (depois de "Novo Lead")
-                const novoLeadIndex = allColumns.findIndex(col => col.id === 'novo_lead');
-                const insertIndex = novoLeadIndex + 1;
-
-                // Inserir estágios personalizados entre "Novo Lead" e "Ganhou/Perdido"
-                allColumns = [
-                  ...allColumns.slice(0, insertIndex),
-                  ...customStages,
-                  ...allColumns.slice(insertIndex)
-                ];
-              }
+            const pipeline = getPreferredPipeline(pipelines);
+            if (pipeline && pipeline.stages?.length) {
+              allColumns = getPipelineColumns(pipeline);
             }
           } catch (pipelineError) {
             console.warn('Falha ao buscar estágios do pipeline, usando apenas colunas padrão:', pipelineError);
