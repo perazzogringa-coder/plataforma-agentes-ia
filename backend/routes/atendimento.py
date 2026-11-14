@@ -35,7 +35,7 @@ async def move_commercial_stage(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    """Advance only the three human-owned retail stages for an authorized chat."""
+    """Advance only the three human-owned wholesale stages for an authorized chat."""
     if body.stage_key not in MANUAL_STAGE_KEYS:
         raise HTTPException(status_code=400, detail="Etapa comercial manual inválida")
     contact = require_contact_access(db, user, company_id, phone, client_id)

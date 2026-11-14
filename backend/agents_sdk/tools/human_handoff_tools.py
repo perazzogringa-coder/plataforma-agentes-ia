@@ -132,7 +132,7 @@ def create_human_handoff_tools(
             assigned_to = assignment_result.assignee.id
 
             # This is intentionally opt-in per company.  A generic human
-            # handoff for another tenant must never create or move retail CRM
+            # handoff for another tenant must never create or move wholesale CRM
             # cards.  A catalog-confirmed handoff records both automatic
             # milestones, while the assignment is already atomically locked.
             from backend.services.vanessa_sales_pipeline import configured_sales_pipeline, move_sales_lead

@@ -150,7 +150,7 @@ interface CrmPipelineStageRule {
 interface CrmPipelineToolSettings {
     pipelineId: number | null;
     stageRules: CrmPipelineStageRule[];
-    retailSalesEvents: boolean;
+    wholesaleSalesEvents: boolean;
     whenToUse: string;
 }
 
@@ -653,7 +653,7 @@ const DEFAULT_CALENDAR_TOOL_SETTINGS: CalendarSchedulingToolSettings = {
 const DEFAULT_CRM_PIPELINE_TOOL_SETTINGS: CrmPipelineToolSettings = {
     pipelineId: null,
     stageRules: [],
-    retailSalesEvents: false,
+    wholesaleSalesEvents: false,
     whenToUse: ''
 };
 
@@ -1378,8 +1378,13 @@ const sanitizeCrmPipelineStageRules = (rules?: any[]): CrmPipelineStageRule[] =>
 const sanitizeCrmPipelineToolSettings = (settings?: any): CrmPipelineToolSettings => ({
     pipelineId: toNullableId(settings?.pipelineId ?? settings?.pipeline_id),
     stageRules: sanitizeCrmPipelineStageRules(settings?.stageRules ?? settings?.stage_rules),
-    retailSalesEvents: normalizeBooleanSetting(
-        settings?.retailSalesEvents ?? settings?.retail_sales_events,
+    wholesaleSalesEvents: normalizeBooleanSetting(
+        settings?.wholesaleSalesEvents
+            ?? settings?.wholesale_sales_events
+            // Keep configurations saved under the pre-release retail aliases
+            // functional; newly saved configurations use wholesale naming.
+            ?? settings?.retailSalesEvents
+            ?? settings?.retail_sales_events,
         false
     ),
     whenToUse: String(settings?.whenToUse ?? settings?.when_to_use ?? '')
@@ -1891,7 +1896,7 @@ const getToolSettingsForMetadata = (
         const settings = sanitizeCrmPipelineToolSettings(toolSettings?.[CRM_PIPELINE_TOOL_ID]);
         return {
             pipeline_id: settings.pipelineId,
-            retail_sales_events: settings.retailSalesEvents,
+            wholesale_sales_events: settings.wholesaleSalesEvents,
             when_to_use: settings.whenToUse.trim(),
             stage_rules: settings.stageRules.map((rule) => ({
                 stage_id: rule.stageId,
@@ -5904,12 +5909,12 @@ const AgentBuilder: React.FC = () => {
                                     <span className="flex items-start gap-3">
                                         <input
                                             type="checkbox"
-                                            checked={selectedCrmSettings.retailSalesEvents}
-                                            onChange={(event) => updateCrmPipelineToolSettings({ retailSalesEvents: event.target.checked })}
+                                            checked={selectedCrmSettings.wholesaleSalesEvents}
+                                            onChange={(event) => updateCrmPipelineToolSettings({ wholesaleSalesEvents: event.target.checked })}
                                             className="mt-1 h-4 w-4"
                                         />
                                         <span>
-                                            <span className="block text-sm font-semibold">Eventos automáticos do varejo</span>
+                                            <span className="block text-sm font-semibold">Eventos automáticos do atacado</span>
                                             <span className={builderMutedTextClass(isDark, 'mt-1 block text-xs leading-5')}>
                                                 Registra novo lead, qualificação e catálogo enviado somente quando o evento ocorreu de fato. Não transfere conversas nem ativa a workforce 3.
                                             </span>

@@ -193,7 +193,7 @@ def create_crm_pipeline_tools(
         evidence: Annotated[str, Field(description="Evidência curta e objetiva do evento.")],
         lead_phone: Annotated[str, Field(description="Telefone do lead; vazio usa o contexto.")] = "",
     ) -> Dict[str, Any]:
-        """Registra uma etapa automática do funil varejista já configurado para a empresa."""
+        """Registra uma etapa automática do funil de atacado já configurado para a empresa."""
         from backend.db import get_db
         from backend.models import Contact
         from backend.services.vanessa_sales_pipeline import move_sales_lead

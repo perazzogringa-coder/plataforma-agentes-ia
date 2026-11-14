@@ -1,4 +1,4 @@
-"""Small, tenant-scoped commercial pipeline for the Vanessa retail pilot.
+"""Small, tenant-scoped commercial pipeline for the Vanessa wholesale pilot.
 
 The service deliberately uses the existing Pipeline/Lead/History model.  It is
 inactive until a company administrator explicitly provisions it, and never
@@ -40,7 +40,7 @@ class SalesPipeline:
 
 
 def provision_sales_pipeline(db: Session, *, company_id: int, actor_user_id: int | None = None) -> SalesPipeline:
-    """Idempotently create the eight-stage retail pipeline for one company."""
+    """Idempotently create the eight-stage wholesale pipeline for one company."""
     company = db.query(Company).filter(Company.id == int(company_id)).with_for_update().first()
     if company is None:
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
@@ -54,7 +54,7 @@ def provision_sales_pipeline(db: Session, *, company_id: int, actor_user_id: int
     if pipeline is None:
         pipeline = Pipeline(
             company_id=int(company_id), name="Vendas - Vanessa Lima",
-            description="Funil comercial varejo", is_active=True,
+            description="Funil comercial atacado", is_active=True,
             created_by_user_id=actor_user_id,
         )
         db.add(pipeline)

@@ -304,10 +304,18 @@ def _compile_crm_pipeline_lines(settings: dict[str, Any]) -> list[str]:
         "  Use `move_lead_crm_stage` only when the conversation matches a configured advance/recede rule and include a concise reason.",
         "  Do not move the lead when the signal is ambiguous; keep the CRM unchanged and continue the conversation.",
     ]
-    if settings.get("retail_sales_events") is True or settings.get("retailSalesEvents") is True:
+    if (
+        settings.get("wholesale_sales_events") is True
+        or settings.get("wholesaleSalesEvents") is True
+        # Backwards-compatible aliases for configurations produced before the
+        # wholesale naming correction.  The stable tool and pipeline key stay
+        # untouched so existing configuration is never silently discarded.
+        or settings.get("retail_sales_events") is True
+        or settings.get("retailSalesEvents") is True
+    ):
         lines.extend(
             [
-                "  For the retail sales pipeline, call `record_retail_sales_event` with `event=new_lead` when a new WhatsApp lead is identified.",
+                "  For the wholesale clothing pipeline, call `record_retail_sales_event` with `event=new_lead` when a new WhatsApp lead is identified.",
                 "  Call it with `event=qualification` only after the lead has supplied the qualification information required by the configured sales flow.",
                 "  Call it with `event=catalog_sent` only after the catalog was actually sent in this conversation; never infer delivery from an intention to send.",
                 "  Do not use these events for images alone. A catalog-confirmed human handoff records the later prints and distribution stages.",
