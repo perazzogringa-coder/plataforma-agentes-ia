@@ -169,6 +169,9 @@ class Lead(Base):
     source_id = Column(String(255), nullable=True)
     thumbnail_url = Column(Text, nullable=True)
     sender_lid = Column(String(255), nullable=True)
+    # A commercial card belongs to one live-chat contact when it was created
+    # from a conversation.  Legacy leads remain nullable and untouched.
+    contact_id = Column(Integer, ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True)
 
     follow_up_sequence_id = Column(Integer, ForeignKey("follow_up_sequences.id", ondelete="SET NULL"))
 
@@ -188,12 +191,23 @@ class Lead(Base):
     current_stage = relationship("PipelineStage", foreign_keys=[current_stage_id])
     stage = relationship("PipelineStage", foreign_keys=[current_stage_id])  # Mantido para compatibilidade
     pipeline_history = relationship("LeadPipelineHistory", back_populates="lead", order_by="LeadPipelineHistory.moved_at.desc()")
+    contact = relationship("Contact", foreign_keys=[contact_id])
 
     # Deal value for Meta CAPI
     deal_value = Column(Numeric(12, 2), nullable=True, comment="Valor do negócio quando lead é convertido")
 
     # Relacionamentos com campos customizados
     custom_values = relationship("LeadCustomValue", back_populates="lead", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index(
+            "uq_leads_company_contact",
+            "company_id",
+            "contact_id",
+            unique=True,
+            postgresql_where=text("contact_id IS NOT NULL"),
+        ),
+    )
 
 class Message(Base):
     __tablename__ = "messages"

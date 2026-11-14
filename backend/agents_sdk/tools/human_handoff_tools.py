@@ -106,6 +106,12 @@ def create_human_handoff_tools(
             db_contact: Contact = contact["contact"]
 
             assigned_to = _safe_positive_int(assignment.get("userId") or assignment.get("user_id"))
+            round_robin_ids = assignment.get("roundRobinUserIds") or assignment.get("round_robin_user_ids")
+            if isinstance(round_robin_ids, list) and round_robin_ids:
+                from backend.services.vanessa_sales_pipeline import choose_round_robin_assignee
+                assigned_to = choose_round_robin_assignee(
+                    db, company_id=company_id, user_ids=round_robin_ids
+                )
             from backend.services.chat_access import resolve_handoff_assignee
             try:
                 assigned_to = resolve_handoff_assignee(db, company_id, assigned_to)
@@ -124,6 +130,27 @@ def create_human_handoff_tools(
             )
             db_contact = assignment_result.contact
             assigned_to = assignment_result.assignee.id
+
+            # This is intentionally opt-in per company.  A generic human
+            # handoff for another tenant must never create or move retail CRM
+            # cards.  A catalog-confirmed handoff records both automatic
+            # milestones, while the assignment is already atomically locked.
+            from backend.services.vanessa_sales_pipeline import configured_sales_pipeline, move_sales_lead
+            if configured_sales_pipeline(db, company_id=company_id):
+                if requires_catalog_confirmation:
+                    move_sales_lead(
+                        db,
+                        contact=db_contact,
+                        stage_key="prints_received",
+                        notes="Seleção de peças confirmada antes do handoff. " + catalog_selection_evidence.strip(),
+                    )
+                move_sales_lead(
+                    db,
+                    contact=db_contact,
+                    stage_key="distributed",
+                    notes="Distribuição automática via handoff humano.",
+                    require_assigned=True,
+                )
             effective_priority = _normalize_priority(
                 priority or assignment.get("priority") or "medium"
             )

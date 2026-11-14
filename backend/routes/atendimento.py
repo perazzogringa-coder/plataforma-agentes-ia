@@ -5,7 +5,7 @@ from sqlalchemy import text
 import json
 
 from backend.db import get_db
-from backend.models import Contact
+from backend.models import Contact, User
 from backend.services.chat_access import require_contact_access
 from backend.services.chat_assignment import (
     assign_chat_contact,
@@ -13,12 +13,42 @@ from backend.services.chat_assignment import (
 )
 from backend.auth import get_current_user
 from backend.ws_manager import manager  # <-- gerenciador de conexões WS, deve ter 'async def broadcast'
+from backend.services.vanessa_sales_pipeline import MANUAL_STAGE_KEYS, move_sales_lead
 
 router = APIRouter(prefix="/atendimento", tags=["Atendimento"])
 
 
 class AssignAttendantRequest(BaseModel):
     assignee_user_id: int = Field(..., gt=0)
+
+
+class CommercialStageRequest(BaseModel):
+    stage_key: str
+
+
+@router.post("/commercial-stage/{phone}")
+async def move_commercial_stage(
+    phone: str,
+    body: CommercialStageRequest,
+    client_id: int = Query(...),
+    company_id: int = Query(...),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Advance only the three human-owned retail stages for an authorized chat."""
+    if body.stage_key not in MANUAL_STAGE_KEYS:
+        raise HTTPException(status_code=400, detail="Etapa comercial manual inválida")
+    contact = require_contact_access(db, user, company_id, phone, client_id)
+    actor_user_id = user.id if isinstance(user, User) else None
+    lead = move_sales_lead(
+        db,
+        contact=contact,
+        stage_key=body.stage_key,
+        actor_user_id=actor_user_id,
+        require_assigned=isinstance(user, User) and user.role != "admin",
+        notes=f"Movido manualmente no Chat Ao Vivo para {body.stage_key}.",
+    )
+    return {"lead_id": lead.id, "stage_key": body.stage_key, "contact_id": contact.id}
 
 @router.post("/take_over/{phone}")
 async def take_over(

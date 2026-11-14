@@ -186,7 +186,48 @@ def create_crm_pipeline_tools(
         finally:
             db.close()
 
-    return [list_crm_pipeline_stages, move_lead_crm_stage]
+    @function_tool
+    async def record_retail_sales_event(
+        context: RunContextWrapper,
+        event: Annotated[str, Field(description="Evento comercial: new_lead, qualification ou catalog_sent.")],
+        evidence: Annotated[str, Field(description="Evidência curta e objetiva do evento.")],
+        lead_phone: Annotated[str, Field(description="Telefone do lead; vazio usa o contexto.")] = "",
+    ) -> Dict[str, Any]:
+        """Registra uma etapa automática do funil varejista já configurado para a empresa."""
+        from backend.db import get_db
+        from backend.models import Contact
+        from backend.services.vanessa_sales_pipeline import move_sales_lead
+
+        stage_by_event = {
+            "new_lead": "new_lead",
+            "qualification": "qualification",
+            "catalog_sent": "catalog_sent",
+        }
+        stage_key = stage_by_event.get(_slugify(event))
+        if not stage_key:
+            return {"success": False, "error": "invalid_retail_sales_event"}
+        runtime_context = getattr(context, "context", None)
+        phone = _normalize_phone(lead_phone or getattr(runtime_context, "contact_phone", None) or "")
+        if not phone:
+            return {"success": False, "error": "lead_phone_required"}
+        db = next(get_db())
+        try:
+            contact = db.query(Contact).filter(
+                Contact.company_id == company_id, Contact.phone.in_(_phone_candidates(phone))
+            ).first()
+            if not contact:
+                return {"success": False, "error": "contact_not_found"}
+            lead = move_sales_lead(
+                db, contact=contact, stage_key=stage_key,
+                notes=f"Evento automático da Ana: {stage_key}. Evidência: {evidence.strip()}",
+            )
+            return {"success": True, "lead_id": lead.id, "stage_key": stage_key}
+        except HTTPException as exc:
+            return {"success": False, "error": "commercial_pipeline_error", "message_for_agent": str(exc.detail)}
+        finally:
+            db.close()
+
+    return [list_crm_pipeline_stages, move_lead_crm_stage, record_retail_sales_event]
 
 
 def _normalize_stage_rules(rules: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

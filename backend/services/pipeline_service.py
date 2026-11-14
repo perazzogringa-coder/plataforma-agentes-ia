@@ -188,7 +188,12 @@ class PipelineService:
         # Calcular tempo na etapa anterior
         time_in_previous = None
         if lead.last_stage_move_at and old_stage_id:
-            time_in_previous = int((datetime.now(timezone.utc) - lead.last_stage_move_at).total_seconds())
+            previous_move = lead.last_stage_move_at
+            # Alguns drivers/esquemas legados retornam o timestamp sem tzinfo;
+            # ele sempre foi persistido como UTC neste serviço.
+            if previous_move.tzinfo is None:
+                previous_move = previous_move.replace(tzinfo=timezone.utc)
+            time_in_previous = int((datetime.now(timezone.utc) - previous_move).total_seconds())
 
         # Criar histórico
         history = LeadPipelineHistory(

@@ -1808,6 +1808,7 @@ def test_compile_workforce_agents_registers_crm_pipeline_tools():
             "enabled": True,
             "settings": {
                 "pipeline_id": 10,
+                "retail_sales_events": True,
                 "stage_rules": [
                     {
                         "stage_id": 20,
@@ -1829,9 +1830,15 @@ def test_compile_workforce_agents_registers_crm_pipeline_tools():
     tool_names = [getattr(tool, "name", "") for tool in compiled.root_agent.tools]
     settings = compiled.configs_by_key["coordenador"].tools[0].settings
 
-    assert tool_names == ["list_crm_pipeline_stages", "move_lead_crm_stage"]
+    assert tool_names == [
+        "list_crm_pipeline_stages",
+        "move_lead_crm_stage",
+        "record_retail_sales_event",
+    ]
     assert settings["pipeline_id"] == 10
     assert settings["stage_rules"][0]["stage_id"] == 20
+    preview = compile_agent_preview(AgentCreationConfig.model_validate(payload))
+    assert "event=catalog_sent" in preview["instructions"]
     assert not compiled.warnings
 
 
