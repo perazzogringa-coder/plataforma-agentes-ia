@@ -42,6 +42,7 @@ import api, {
   takeOverContact,
   releaseContactToBot,
   assignContactAttendant,
+  moveContactCommercialStage,
   listUsers,
   type User,
   sendWhatsAppText,
@@ -1607,6 +1608,21 @@ const ChatPage5: React.FC = () => {
     }
   };
 
+  const moveSelectedContactCommercialStage = async (
+    stageKey: 'assembling_order' | 'awaiting_payment' | 'sale_completed',
+    label: string,
+  ) => {
+    if (!selectedContact) return;
+    try {
+      await moveContactCommercialStage(selectedContact.phone, stageKey);
+      setAssignmentNotice(`Etapa atualizada: ${label}.`);
+      await loadContacts(0, 50, false);
+    } catch (error) {
+      console.error('Erro ao atualizar etapa comercial:', error);
+      setAssignmentNotice('Não foi possível atualizar a etapa comercial.');
+    }
+  };
+
   const selectContactFromList = async (contact: Contact) => {
     // Normalizar o telefone antes de selecionar o contato
     const normalizedPhone = normalizePhone(contact.phone);
@@ -1941,6 +1957,19 @@ const ChatPage5: React.FC = () => {
           <UserPlus className="mr-1 h-3.5 w-3.5" />
           Atribuir
         </button>
+      )}
+      {selectedContact.human_mode && (
+        <div className="flex shrink-0 items-center gap-1" aria-label="Atualizar etapa comercial">
+          <button type="button" onClick={() => moveSelectedContactCommercialStage('assembling_order', 'Pedido em montagem')} className={cx('rounded-lg border px-2 py-1 text-[11px] font-semibold', isDark ? 'border-white/15 text-white hover:bg-white/10' : 'border-brand/15 text-brand hover:bg-brand/5')}>
+            Em montagem
+          </button>
+          <button type="button" onClick={() => moveSelectedContactCommercialStage('awaiting_payment', 'Aguardando pagamento')} className={cx('rounded-lg border px-2 py-1 text-[11px] font-semibold', isDark ? 'border-white/15 text-white hover:bg-white/10' : 'border-brand/15 text-brand hover:bg-brand/5')}>
+            Pagamento
+          </button>
+          <button type="button" onClick={() => moveSelectedContactCommercialStage('sale_completed', 'Venda concluída')} className={cx('rounded-lg border px-2 py-1 text-[11px] font-semibold', isDark ? 'border-white/15 text-white hover:bg-white/10' : 'border-brand/15 text-brand hover:bg-brand/5')}>
+            Concluir venda
+          </button>
+        </div>
       )}
     </>
   ) : null;

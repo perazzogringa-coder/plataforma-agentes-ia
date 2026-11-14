@@ -4735,6 +4735,21 @@ export async function assignContactAttendant(
   return response.data;
 }
 
+export async function moveContactCommercialStage(
+  contactId: string,
+  stageKey: 'assembling_order' | 'awaiting_payment' | 'sale_completed',
+): Promise<{ lead_id: number; stage_key: string; contact_id: number }> {
+  const clientId = localStorage.getItem('client_id');
+  const companyId = localStorage.getItem('company_id') || localStorage.getItem('clinic_id');
+  if (!clientId || !companyId) throw new Error('Empresa não identificada');
+  const response = await api.post(
+    `/api/atendimento/commercial-stage/${encodeURIComponent(contactId)}`,
+    { stage_key: stageKey },
+    { params: { client_id: clientId, company_id: companyId } },
+  );
+  return response.data;
+}
+
 
 // --------------------
 //    Funções de API
