@@ -16,6 +16,7 @@ from backend.worker import process_message_waha as waha_worker
 from backend.worker.process_message_waha import (
     _build_internal_waha_file_url,
     _extract_waha_file_path,
+    _lock_waha_logical_message,
     _message_tracker_content_for_check,
     _materialize_audio_content,
     _waha_conversation_kind,
@@ -43,6 +44,26 @@ class _FakeResult:
 
     def fetchall(self):
         return self._rows
+
+
+def test_waha_logical_message_lock_is_scoped_to_company_and_message_id():
+    class _LockDB:
+        def __init__(self):
+            self.executions = []
+
+        def execute(self, query, params):
+            self.executions.append((str(query), params))
+            return _FakeResult()
+
+    db = _LockDB()
+
+    _lock_waha_logical_message(db, company_id=7, message_id="waha-logical-id")
+
+    statement, params = db.executions[0]
+    assert "pg_advisory_xact_lock" in statement
+    assert params == {
+        "logical_message_key": "waha-logical-message:7:waha-logical-id",
+    }
 
 
 class _FakeDB:
