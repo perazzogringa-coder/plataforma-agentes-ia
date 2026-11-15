@@ -2784,6 +2784,12 @@ def configure_waha_webhooks_completely(client, session_name: str) -> bool:
             }
         }
 
+        webhook_hmac_key = os.getenv("WAHA_WEBHOOK_HMAC_KEY", "").strip()
+        if webhook_hmac_key:
+            webhook_config["config"]["webhooks"][0]["hmac"] = {
+                "key": webhook_hmac_key,
+            }
+
         # ✅ UPDATE da sessão (método seguro - não derruba conexão)
         response = client._request(
             method='PUT',
