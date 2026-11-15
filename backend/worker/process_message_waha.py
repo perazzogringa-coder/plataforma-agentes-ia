@@ -50,6 +50,32 @@ WAHA_FILES_MARKER = "/api/files/"
 WAHA_MEDIA_ROUTE_PREFIX = "/api/waha/media/"
 
 
+def _lock_waha_logical_message(
+    db: Session,
+    company_id: int,
+    message_id: str,
+) -> None:
+    """Serialize persistence of one WAHA logical message inside a company.
+
+    WAHA can deliver the same WhatsApp message through both ``message`` and
+    ``message.any``.  Those event names intentionally remain independent at
+    the webhook/audit layer because ``message.any`` can enrich media metadata.
+    Before reading or inserting the persisted message, however, they must
+    share one transaction-scoped lock.  This prevents two Celery workers from
+    both treating the same logical message as new and triggering the flow
+    twice.
+    """
+    logical_message_key = f"waha-logical-message:{int(company_id)}:{message_id}"
+    db.execute(
+        text("""
+            SELECT pg_advisory_xact_lock(
+                hashtextextended(:logical_message_key, 0)
+            )
+        """),
+        {"logical_message_key": logical_message_key},
+    )
+
+
 def _company_openai_key_for_media(db: Session, company_id: int) -> str:
     try:
         return get_company_openai_api_key(db, int(company_id))
@@ -1687,12 +1713,17 @@ def process_incoming_waha_message(self, task_data: Dict[str, Any]):
         # IMPORTANTE: isso precisa rodar para mensagens recebidas também (from_api=False),
         # caso contrário elas não são persistidas na tabela messages.
         zapi_message_id = message_id  # Usar message_id do WAHA
+        _lock_waha_logical_message(db, company_id, zapi_message_id)
         existing = db.execute(text("""
                 SELECT id, message_type, content, sender_name
                 FROM messages
-                WHERE zapi_message_id = :zapi_message_id
+                WHERE company_id = :company_id
+                  AND zapi_message_id = :zapi_message_id
                 LIMIT 1
-        """), {"zapi_message_id": zapi_message_id}).fetchone()
+        """), {
+            "company_id": company_id,
+            "zapi_message_id": zapi_message_id,
+        }).fetchone()
 
         if not existing:
             try:
@@ -1760,9 +1791,13 @@ def process_incoming_waha_message(self, task_data: Dict[str, Any]):
                     existing = db.execute(text("""
                             SELECT id, message_type, content, sender_name
                             FROM messages
-                            WHERE zapi_message_id = :zapi_message_id
+                            WHERE company_id = :company_id
+                              AND zapi_message_id = :zapi_message_id
                             LIMIT 1
-                    """), {"zapi_message_id": zapi_message_id}).fetchone()
+                    """), {
+                        "company_id": company_id,
+                        "zapi_message_id": zapi_message_id,
+                    }).fetchone()
                 else:
                     # Outro erro - propagar
                     raise
@@ -2654,9 +2689,12 @@ def process_incoming_waha_message(self, task_data: Dict[str, Any]):
             if user_text and (msg_type != "text"):
                 append_message_to_chat_file(company_id, phone, from_me=False, content=user_text)
 
-        if not from_me and user_text and not (was_inserted or was_updated):
+        # Enrichment is intentionally allowed to update the persisted message
+        # and the live chat.  It must not run the automatic flow a second time:
+        # the first task that inserted this logical WAHA message owns automation.
+        if not from_me and user_text and not was_inserted:
             logger.info(
-                "[WAHA Task] Mensagem recebida já existia e não mudou; pulando automações para evitar resposta duplicada"
+                "[WAHA Task] Mensagem lógica já processada; pulando automações para evitar resposta duplicada"
             )
             if audit_id:
                 update_audit_status(db, audit_id, "completed", error="Mensagem duplicada ignorada")

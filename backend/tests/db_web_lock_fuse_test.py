@@ -2,6 +2,8 @@ import asyncio
 import os
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 from types import SimpleNamespace
 
 import pytest
@@ -18,6 +20,9 @@ os.environ.setdefault(
 from backend import db as db_module  # noqa: E402
 from backend.services import company_access_control  # noqa: E402
 from backend.worker import db_pool_lifecycle  # noqa: E402
+from backend.worker.process_message_waha import (  # noqa: E402
+    _lock_waha_logical_message,
+)
 
 
 class _ScalarResult:
@@ -388,4 +393,85 @@ def test_real_postgres_bounded_session_lock_timeout_is_reapplied():
                 session.rollback()
             finally:
                 session.close()
+        engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("first_event", "second_event"),
+    [
+        ("message", "message.any"),
+        ("message.any", "message"),
+    ],
+)
+@pytest.mark.skipif(
+    not os.getenv("TEST_POSTGRES_DATABASE_URL"),
+    reason="TEST_POSTGRES_DATABASE_URL not configured",
+)
+def test_real_postgres_two_workers_claim_one_waha_logical_message(
+    first_event,
+    second_event,
+):
+    """Two concurrent Celery-style workers must create only one logical message.
+
+    The storage table deliberately has no unique constraint, matching the
+    production defect.  The assertion therefore proves that the advisory lock,
+    rather than event type or a schema constraint, supplies idempotency.
+    """
+    engine = create_engine(
+        os.environ["TEST_POSTGRES_DATABASE_URL"],
+        pool_pre_ping=True,
+    )
+    Session = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+    table_name = f"waha_idempotency_test_{uuid.uuid4().hex}"
+    company_id = int(uuid.uuid4().int % 1_000_000_000) + 1_000_000_000
+    message_id = f"logical-{uuid.uuid4().hex}"
+    start = Barrier(2)
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                f"CREATE TABLE {table_name} "
+                "(company_id BIGINT NOT NULL, message_id TEXT NOT NULL)"
+            )
+        )
+
+    def worker(event_type):
+        session = Session()
+        try:
+            start.wait(timeout=2)
+            _lock_waha_logical_message(session, company_id, message_id)
+            existing = session.execute(
+                text(
+                    f"SELECT 1 FROM {table_name} "
+                    "WHERE company_id = :company_id AND message_id = :message_id"
+                ),
+                {"company_id": company_id, "message_id": message_id},
+            ).scalar()
+            if existing:
+                session.rollback()
+                return event_type, False
+            session.execute(
+                text(
+                    f"INSERT INTO {table_name} (company_id, message_id) "
+                    "VALUES (:company_id, :message_id)"
+                ),
+                {"company_id": company_id, "message_id": message_id},
+            )
+            session.commit()
+            return event_type, True
+        finally:
+            session.close()
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            outcomes = list(pool.map(worker, (first_event, second_event)))
+
+        assert sorted(inserted for _event, inserted in outcomes) == [False, True]
+        with engine.connect() as connection:
+            assert connection.execute(
+                text(f"SELECT count(*) FROM {table_name}")
+            ).scalar() == 1
+    finally:
+        with engine.begin() as connection:
+            connection.execute(text(f"DROP TABLE IF EXISTS {table_name}"))
         engine.dispose()
