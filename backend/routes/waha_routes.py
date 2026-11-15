@@ -5,6 +5,9 @@ IMPORTANTE: Este arquivo é NOVO e NÃO modifica o sistema Z-API existente.
 Z-API continua funcionando normalmente em backend/routes/webhook.py
 """
 
+import hashlib
+import hmac
+import json
 import logging
 import uuid
 import os
@@ -27,6 +30,25 @@ router = APIRouter()
 
 # Redis para enfileirar mensagens
 redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=False)
+
+
+def _validate_waha_webhook_hmac(raw_body: bytes, headers) -> None:
+    """Reject callbacks that are not signed by the configured WAHA instance."""
+    secret = os.getenv("WAHA_WEBHOOK_HMAC_KEY", "").strip()
+    if not secret:
+        logger.error("[WAHA Webhook] Chave HMAC não configurada")
+        raise HTTPException(status_code=503, detail="WAHA webhook authentication is unavailable")
+
+    algorithm = headers.get("X-Webhook-Hmac-Algorithm", "").strip().lower()
+    signature = headers.get("X-Webhook-Hmac", "").strip()
+    if algorithm != "sha512" or not signature:
+        raise HTTPException(status_code=401, detail="Invalid WAHA webhook signature")
+
+    expected = hmac.new(
+        secret.encode("utf-8"), raw_body, hashlib.sha512
+    ).hexdigest()
+    if not hmac.compare_digest(expected, signature):
+        raise HTTPException(status_code=401, detail="Invalid WAHA webhook signature")
 
 
 def _resolve_waha_company_id(db: Session, session_name: str) -> int:
@@ -107,10 +129,14 @@ async def waha_message_webhook(request: Request, db: Session = Depends(get_db)):
     try:
         logger.info("[WAHA Webhook] Recebendo callback do WAHA")
 
-        # Parse do payload
+        # Authenticate the exact bytes before parsing, auditing, or queuing them.
         try:
-            data = await request.json()
+            raw_body = await request.body()
+            _validate_waha_webhook_hmac(raw_body, request.headers)
+            data = json.loads(raw_body)
         except Exception as e:
+            if isinstance(e, HTTPException):
+                raise
             logger.error(f"[WAHA Webhook] Erro ao parsear JSON: {e}")
             raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
