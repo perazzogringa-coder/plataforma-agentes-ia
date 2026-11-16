@@ -12,6 +12,7 @@ import api, {
   markContactAsRead,
   takeOverContact,
   releaseContactToBot,
+  moveContactCommercialStage,
   sendWhatsAppText,
   sendWhatsAppAudio,
   sendWhatsAppImage,
@@ -141,6 +142,8 @@ interface Contact {
   };
 }
 
+type CommercialStageKey = 'assembling_order' | 'awaiting_payment' | 'sale_completed';
+
 const ChatMobile: React.FC = () => {
   const { isDark } = useTheme();
   // Estados - declarados primeiro
@@ -161,6 +164,8 @@ const ChatMobile: React.FC = () => {
   const [isProfileLeadLoading, setIsProfileLeadLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [isConvertingLead, setIsConvertingLead] = useState(false);
+  const [commercialStageAction, setCommercialStageAction] = useState<CommercialStageKey | null>(null);
+  const [commercialStageNotice, setCommercialStageNotice] = useState<string | null>(null);
 
   // Controlar visibilidade da navbar baseado na view
   React.useEffect(() => {
@@ -457,6 +462,36 @@ const ChatMobile: React.FC = () => {
     }
   };
 
+  const handleMoveCommercialStage = async (stageKey: CommercialStageKey, label: string) => {
+    if (!selectedContact || commercialStageAction) return;
+
+    setCommercialStageAction(stageKey);
+    setCommercialStageNotice(null);
+
+    try {
+      await moveContactCommercialStage(selectedContact.phone, stageKey);
+      setCommercialStageNotice(`Etapa atualizada: ${label}.`);
+
+      const updatedContacts = await getContacts();
+      const cMap = new Map<string, Contact>();
+      updatedContacts.contacts.forEach((contact) => {
+        const normalizedPhone = normalizePhone(contact.phone);
+        cMap.set(normalizedPhone, {
+          ...contact,
+          phone: normalizedPhone,
+          lastMessage: normalizeContactLastMessage(contact.lastMessage),
+          unreadCount: contact.unreadCount ?? 0,
+        });
+      });
+      setContacts(cMap);
+    } catch (error) {
+      console.error('Erro ao atualizar etapa comercial:', error);
+      setCommercialStageNotice('Não foi possível atualizar a etapa comercial.');
+    } finally {
+      setCommercialStageAction(null);
+    }
+  };
+
   useEffect(() => {
     if (!selectedContact) {
       setShowContactProfile(false);
@@ -625,6 +660,39 @@ const ChatMobile: React.FC = () => {
     </button>
   ) : null;
 
+  const commercialStageControls = selectedContact?.human_mode ? (
+    <div className={cx('border-t px-3 py-2', isDark ? 'border-white/10 bg-brand' : 'border-brand/10 bg-white')} aria-label="Atualizar etapa comercial">
+      {commercialStageNotice && (
+        <p
+          className={cx('mb-2 text-xs', commercialStageNotice.startsWith('Não') ? 'text-red-500' : 'text-green-600')}
+          role="status"
+        >
+          {commercialStageNotice}
+        </p>
+      )}
+      <div className="grid grid-cols-3 gap-2">
+        {([
+          ['assembling_order', 'Em montagem'],
+          ['awaiting_payment', 'Pagamento'],
+          ['sale_completed', 'Concluir venda'],
+        ] as const).map(([stageKey, label]) => (
+          <button
+            key={stageKey}
+            type="button"
+            onClick={() => handleMoveCommercialStage(stageKey, label)}
+            disabled={commercialStageAction !== null}
+            className={cx(
+              'min-h-10 rounded-lg border px-2 py-1 text-[11px] font-semibold leading-tight transition-colors disabled:cursor-not-allowed disabled:opacity-60',
+              isDark ? 'border-white/15 text-white hover:bg-white/10' : 'border-brand/15 text-brand hover:bg-brand/5',
+            )}
+          >
+            {commercialStageAction === stageKey ? 'Atualizando...' : label}
+          </button>
+        ))}
+      </div>
+    </div>
+  ) : null;
+
   // Renderizar lista de contatos
   const renderContactList = () => (
     <div className={cx('flex h-full flex-col overflow-hidden pb-[calc(7.25rem+env(safe-area-inset-bottom))]', isDark ? 'bg-brand text-white' : 'bg-brand-canvas text-brand')}>
@@ -780,7 +848,12 @@ const ChatMobile: React.FC = () => {
       </div>
 
       {/* Container com scroll que comporta mensagens */}
-      <div className="flex-1 overflow-y-auto pb-[calc(5.75rem+env(safe-area-inset-bottom))]">
+      <div className={cx(
+        'flex-1 overflow-y-auto',
+        selectedContact?.human_mode
+          ? 'pb-[calc(10.25rem+env(safe-area-inset-bottom))]'
+          : 'pb-[calc(5.75rem+env(safe-area-inset-bottom))]',
+      )}>
         <VirtualizedMessageList
           messages={messages}
           isLoading={isLoading}
@@ -791,6 +864,7 @@ const ChatMobile: React.FC = () => {
 
       {/* Input de mensagem - fixo no bottom */}
       <div className={cx('fixed inset-x-0 bottom-0 z-50 border-t pb-[env(safe-area-inset-bottom)]', isDark ? 'border-white/10 bg-brand' : 'border-brand/10 bg-white')}>
+        {commercialStageControls}
         <OptimizedMessageInput
           onSendText={handleSendMessage}
           onSendAudio={handleAudioRecorded}
