@@ -1481,6 +1481,14 @@ def get_contacts_no_history(
     if isinstance(user, Client):
         # Usuário MASTER (Client)
         final_client_id = user.id
+
+        # A conta master pode selecionar um workspace vinculado sem ser a
+        # proprietária dos dados dele. Para um escopo explícito, autorize o
+        # vínculo e consulte o proprietário imutável da empresa selecionada.
+        # Sem company_id, mantemos o comportamento legado da própria conta.
+        if q_company_id:
+            ensure_user_can_access_company(user, q_company_id, db)
+            final_client_id = resolve_company_owner_client_id(db, q_company_id)
         query_params["cid"] = final_client_id
 
         if q_company_id:
@@ -1929,8 +1937,15 @@ def get_contacts(
         # -------------------------
         logger.info("[Webhook] É um usuário MASTER (Client).")
 
-        # "final_client_id" SEMPRE será user.id (pois master só enxerga dele mesmo).
+        # A empresa selecionada pode ser um workspace vinculado cujo
+        # proprietário de dados não é a própria conta master. Nunca confiamos
+        # no client_id da query; autorizamos a empresa e resolvemos seu dono.
+        # Sem company_id explícito, preservamos o escopo legado da própria
+        # conta.
         final_client_id = user.id
+        if q_company_id:
+            ensure_user_can_access_company(user, q_company_id, db)
+            final_client_id = resolve_company_owner_client_id(db, q_company_id)
         query_params["cid"] = final_client_id
 
         if q_company_id:
